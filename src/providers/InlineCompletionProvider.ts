@@ -42,7 +42,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
   }
 
   dispose() {
-    this.disposables.forEach(d => d.dispose());
+    this.disposables.forEach((d) => d.dispose());
+    this.disposables = [];
   }
 
   provideInlineCompletionItems(document: vscode.TextDocument, position: vscode.Position, context: vscode.InlineCompletionContext, token: vscode.CancellationToken): vscode.ProviderResult<vscode.InlineCompletionItem[]> {
