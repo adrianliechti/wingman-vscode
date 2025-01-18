@@ -1,6 +1,6 @@
 {
-  "name": "loop-vscode",
-  "displayName": "loop-vscode",
+  "name": "wingman-vscode",
+  "displayName": "wingman-vscode",
   "description": "",
   "version": "0.0.1",
   "engines": {
@@ -13,14 +13,6 @@
     "onLanguage"
   ],
   "main": "./out/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "loop-vscode.helloWorld",
-        "title": "Hello World"
-      }
-    ]
-  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",

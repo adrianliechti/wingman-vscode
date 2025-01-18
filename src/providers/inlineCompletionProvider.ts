@@ -1,80 +1,108 @@
 import * as vscode from "vscode";
 import OpenAI from "openai";
 
-const client = new OpenAI({
-  apiKey: "-",
-  baseURL: "http://localhost:8080/v1",
-});
+export class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
+  private disposables: vscode.Disposable[] = [];
 
-type Message = {
-  name: string;
-  language: string;
+  private timer: NodeJS.Timeout | undefined;
+  private cancelTokenSource: vscode.CancellationTokenSource | undefined;
 
-  content: string;
-  position: number;
+  private model: string
+  private client: OpenAI
+  
+  private lastCompletion = ''
+  private delayCompletion = 750;
+  private allowCompletion = true;
 
-  prefix: string;
-  suffix: string;
-};
+  constructor() {
+    this.model = "gpt-4o-mini"
 
-let timer: NodeJS.Timeout | undefined;
-let cancelTokenSource: vscode.CancellationTokenSource | undefined;
+    this.client = new OpenAI({
+      apiKey: "-",
+      baseURL: "http://localhost:8080/v1",
+    });
 
-export const inlineCompletionItemProvider: vscode.InlineCompletionItemProvider =
-{
-  provideInlineCompletionItems(document, position, context, token): vscode.ProviderResult<vscode.InlineCompletionItem[]> {
-    if (timer) {
-      clearTimeout(timer);
-      timer = undefined;
+    this.disposables.push(
+      vscode.workspace.onDidChangeTextDocument((e: vscode.TextDocumentChangeEvent) => {
+        if (e.reason === vscode.TextDocumentChangeReason.Undo || e.reason === vscode.TextDocumentChangeReason.Redo) {
+          return;
+        }
+
+        for (const change of e.contentChanges) {
+          if (this.lastCompletion && change.text === this.lastCompletion) {
+            continue;
+          }
+
+          if (change.text.length <= 1 || (change.rangeLength <= 1 && change.text.length <= 3)) {
+            this.allowCompletion = true;
+          }
+        }
+      })
+    );
+  }
+
+  dispose() {
+    this.disposables.forEach(d => d.dispose());
+  }
+
+  provideInlineCompletionItems(document: vscode.TextDocument, position: vscode.Position, context: vscode.InlineCompletionContext, token: vscode.CancellationToken): vscode.ProviderResult<vscode.InlineCompletionItem[]> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
     }
 
-    if (cancelTokenSource) {
-      cancelTokenSource.cancel();
-      cancelTokenSource.dispose();
+    if (this.cancelTokenSource) {
+      this.cancelTokenSource.cancel();
+      this.cancelTokenSource.dispose();
     }
 
     if (token.isCancellationRequested) {
-      return null;
+      return [];
     }
 
-    if (document.uri.scheme === "vscode-scm") {
-      return null;
+    if (!this.allowCompletion) {
+      return [];
     }
 
     const editor = vscode.window.activeTextEditor;
 
     if (editor && editor.selections.length > 1) {
-      return null;
+      return [];
     }
 
-    cancelTokenSource = new vscode.CancellationTokenSource();
-
-    const localToken = cancelTokenSource.token;
+    this.cancelTokenSource = new vscode.CancellationTokenSource();
+    const localToken = this.cancelTokenSource.token;
 
     return new Promise((resolve, reject) => {
-      timer = setTimeout(async () => {
+      this.timer = setTimeout(async () => {
         if (localToken.isCancellationRequested) {
           return reject('Cancelled');
         }
 
         try {
-          const message = {
+          const input = {
             name: document.fileName,
-      
+
             language: document.languageId,
-      
+
             content: document.getText(),
             position: document.offsetAt(position),
-      
+
             prefix: textBefore(document, position),
             suffix: textAfter(document, position),
           };
 
-          const result = await handleCompletionMessage(message);
+          const result = await handleCompletionMessage(this.client, this.model, input);
 
+          if (result?.length > 0) {
+            this.lastCompletion = result;
+            this.allowCompletion = false;
+          }
+          
           const completions = [
             {
               insertText: result,
+              range: new vscode.Range(position, position)
             },
           ]
 
@@ -86,17 +114,28 @@ export const inlineCompletionItemProvider: vscode.InlineCompletionItemProvider =
         } catch (err) {
           reject(err);
         }
-      }, 2000); // 750ms debounce
+      }, this.delayCompletion);
     });
-  },
+  }
+}
+
+type CompletionContext = {
+  name: string;
+  language: string;
+
+  content: string;
+  position: number;
+
+  prefix: string;
+  suffix: string;
 };
 
-async function handleCompletionMessage(message: Message): Promise<string> {
+async function handleCompletionMessage(client: OpenAI, model: string, context: CompletionContext): Promise<string> {
   const system = "You are an expert in software development. Your Task is inline code completion in a code editor. Return the code snippet as JSON."
-  const content = "```" + message.language + "\n" + message.prefix + "`[SNIPPET]`" + message.suffix + "\n```"
+  const content = "```" + context.language + "\n" + context.prefix + "`[SNIPPET]`" + context.suffix + "\n```"
 
   const completion = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: model,
 
     messages: [
       { role: 'user', content: system + "\n\n" + content },
