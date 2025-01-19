@@ -15,12 +15,18 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
   private allowCompletion = true;
 
   constructor() {
-    this.model = "gpt-4o-mini"
+    const config = vscode.workspace.getConfiguration('adrianliechti.wingman-vscode');
+
+    this.model = config.get<string>('model') ?? ''
 
     this.client = new OpenAI({
-      apiKey: "-",
-      baseURL: "http://localhost:8080/v1",
+      apiKey: config.get<string>('apiKey') ?? '',
+      baseURL: config.get<string>('baseUrl') ?? '',
     });
+
+    console.log(this.model)
+    console.log(this.client.baseURL)
+    console.log(this.client.apiKey)
 
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e: vscode.TextDocumentChangeEvent) => {

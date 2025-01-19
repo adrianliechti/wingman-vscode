@@ -16,6 +16,28 @@
     "onLanguage"
   ],
   "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Wingman AI",
+      "properties": {
+        "adrianliechti.wingman-vscode.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:8080/v1",
+          "description": "Wingman API endpoint"
+        },
+        "adrianliechti.wingman-vscode.apiKey": {
+          "type": "string",
+          "default": "-",
+          "description": "Wingman API key"
+        },
+        "adrianliechti.wingman-vscode.model": {
+          "type": "string",
+          "default": "wingman",
+          "description": "Wingman default model"
+        }
+      }
+    }
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
