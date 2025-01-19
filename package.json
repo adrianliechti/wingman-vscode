@@ -1,6 +1,8 @@
 {
   "name": "wingman-vscode",
-  "displayName": "wingman-vscode",
+  "publisher": "adrianliechti",
+  "repository": "https://github.com/adrianliechti/wingman-vscode",
+  "displayName": "Wingman AI pair programmer",
   "description": "",
   "version": "0.0.1",
   "engines": {
