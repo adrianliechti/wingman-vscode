@@ -3,6 +3,7 @@
   "publisher": "adrianliechti",
   "repository": "https://github.com/adrianliechti/wingman-vscode",
   "displayName": "Wingman AI pair programmer",
+  "icon": "assets/icon.png",
   "description": "",
   "version": "0.0.1",
   "engines": {
