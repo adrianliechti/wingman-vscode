@@ -1,10 +1,13 @@
 {
   "name": "wingman-vscode",
-  "displayName": "wingman-vscode",
+  "publisher": "adrianliechti",
+  "repository": "https://github.com/adrianliechti/wingman-vscode",
+  "displayName": "Wingman AI",
+  "icon": "assets/icon.png",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other"
@@ -13,6 +16,28 @@
     "onLanguage"
   ],
   "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Wingman AI",
+      "properties": {
+        "adrianliechti.wingman-vscode.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:8080/v1",
+          "description": "Wingman API endpoint"
+        },
+        "adrianliechti.wingman-vscode.apiKey": {
+          "type": "string",
+          "default": "-",
+          "description": "Wingman API key"
+        },
+        "adrianliechti.wingman-vscode.model": {
+          "type": "string",
+          "default": "wingman",
+          "description": "Wingman default model"
+        }
+      }
+    }
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
@@ -24,7 +49,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
-    "@types/vscode": "^1.96.0",
+    "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
     "@typescript-eslint/parser": "^8.17.0",
     "@vscode/test-cli": "^0.0.10",
