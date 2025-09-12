@@ -12,25 +12,25 @@ import {
     LanguageModelToolResultPart,
     LanguageModelToolCallPart,
     LanguageModelPromptTsxPart,
-    LanguageModelChatMessageRole
+    LanguageModelChatMessageRole,
+    PrepareLanguageModelChatModelOptions
 } from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionMessageParam, ChatCompletionContentPartText, ChatCompletionTool } from "openai/resources/chat/completions";
+import { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 
 export class ChatModelProvider implements LanguageModelChatProvider {
-    private _client: OpenAI;
-
     constructor(private readonly secrets: SecretStorage) {
-        this._client = new OpenAI({
-            baseURL: 'http://localhost:8080/v1',
-            apiKey: '-'
-        });
     }
 
-    //onDidChangeLanguageModelChatInformation?: vscode.Event<void> | undefined;
+    async provideLanguageModelChatInformation(options: PrepareLanguageModelChatModelOptions, token: CancellationToken): Promise<LanguageModelChatInformation[]> {
+        const apiKey = await this.ensureAPIKey(options.silent);
+        const baseUrl = await this.ensureBaseUrl(options.silent);
+		
+        if (!apiKey || !baseUrl) {
+			return [];
+		}
 
-    async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<LanguageModelChatInformation[]> {
         return [{
             id: "gpt-5",
 
@@ -55,13 +55,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
     }
 
     async provideLanguageModelChatResponse(model: LanguageModelChatInformation, messages: readonly LanguageModelChatRequestMessage[], options: ProvideLanguageModelChatResponseOptions, progress: Progress<LanguageModelResponsePart>, token: CancellationToken): Promise<void> {
-        for (const message of messages) {
-            for (const part of message.content) {
-                if (part instanceof LanguageModelTextPart) {
-                    console.log(part.value);
-                }
-            }
-        }
+        const client = await this.createClient();
 
         const input: ChatCompletionMessageParam[] = [];
 
@@ -142,7 +136,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
             }
         }
 
-        const completion = await this._client.chat.completions.create({
+        const completion = await client.chat.completions.create({
             model: model.id,
 
             tools: tools,
@@ -161,4 +155,60 @@ export class ChatModelProvider implements LanguageModelChatProvider {
             }
         }
     }
+
+    private async createClient(): Promise<OpenAI> {
+        const baseURL = await this.ensureBaseUrl(true);
+        const apiKey = await this.ensureAPIKey(true);
+
+        if (!baseURL || !apiKey) {
+            throw new Error("Missing API key or Base URL");
+        }
+
+        return new OpenAI({
+            baseURL: baseURL,
+            apiKey: apiKey
+        });
+    }
+
+    private async ensureBaseUrl(silent: boolean): Promise<string | undefined> {
+		let baseUrl = await this.secrets.get("wingman.baseUrl");
+
+		if (!baseUrl && !silent) {
+			const entered = await vscode.window.showInputBox({
+				title: "Wingman Base Url",
+				prompt: "Enter Wingman Base Url",
+				ignoreFocusOut: true,
+				password: false,
+                value: "http://localhost:8080/v1",
+			});
+
+			if (entered && entered.trim()) {
+				baseUrl = entered.trim();
+				await this.secrets.store("wingman.baseUrl", baseUrl);
+			}
+		}
+
+		return baseUrl;
+	}
+
+    private async ensureAPIKey(silent: boolean): Promise<string | undefined> {
+		let apiKey = await this.secrets.get("wingman.apiKey");
+
+		if (!apiKey && !silent) {
+			const entered = await vscode.window.showInputBox({
+				title: "Wingman API Key",
+				prompt: "Enter Wingman API key",
+				ignoreFocusOut: true,
+				password: true,
+                value: "-"
+			});
+
+			if (entered && entered.trim()) {
+				apiKey = entered.trim();
+				await this.secrets.store("wingman.apiKey", apiKey);
+			}
+		}
+
+		return apiKey;
+	}
 }

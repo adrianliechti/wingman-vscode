@@ -3,6 +3,10 @@
   "displayName": "wingman",
   "description": "Wingman AI",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adrianliechti/wingman-vscode"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -15,9 +19,16 @@
     "languageModelChatProviders": [
       {
         "vendor": "wingman",
-        "displayName": "Wingman"
+        "displayName": "Wingman",
+        "managementCommand": "wingman.manage"
       }
-    ]
+    ],
+    "commands": [
+			{
+				"command": "wingman.manage",
+				"title": "Manage Wingman Provider"
+			}
+		]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -25,7 +36,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -35,6 +47,7 @@
     "@typescript-eslint/parser": "^8.42.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.0",
     "eslint": "^9.34.0",
     "typescript": "^5.9.2"
   },
