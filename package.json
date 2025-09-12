@@ -1,18 +1,22 @@
 {
-  "name": "wingman",
-  "displayName": "wingman",
+  "name": "wingman-vscode",
+  "publisher": "adrianliechti",
+  "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "icon": "assets/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/adrianliechti/wingman-vscode"
   },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.104.0"
   },
   "categories": [
-    "Other"
-  ],
+		"AI",
+		"Chat"
+	],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
