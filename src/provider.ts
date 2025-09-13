@@ -1,29 +1,13 @@
 import * as vscode from "vscode";
-import {
-    Progress,
-    CancellationToken,
-    SecretStorage,
-    LanguageModelChatProvider,
-    LanguageModelChatInformation,
-    LanguageModelChatRequestMessage,
-    ProvideLanguageModelChatResponseOptions,
-    LanguageModelResponsePart,
-    LanguageModelTextPart,
-    LanguageModelToolResultPart,
-    LanguageModelToolCallPart,
-    LanguageModelPromptTsxPart,
-    LanguageModelChatMessageRole,
-    PrepareLanguageModelChatModelOptions
-} from "vscode";
 
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 
-export class ChatModelProvider implements LanguageModelChatProvider {
-    constructor(private readonly secrets: SecretStorage) {
+export class ChatModelProvider implements vscode.LanguageModelChatProvider {
+    constructor(private readonly secrets: vscode.SecretStorage) {
     }
 
-    async provideLanguageModelChatInformation(options: PrepareLanguageModelChatModelOptions, token: CancellationToken): Promise<LanguageModelChatInformation[]> {
+    async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
         const apiKey = await this.ensureAPIKey(options.silent);
         const baseUrl = await this.ensureBaseUrl(options.silent);
 		
@@ -50,7 +34,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
         }];
     }
 
-    async provideTokenCount(model: LanguageModelChatInformation, text: string | LanguageModelChatRequestMessage, token: CancellationToken): Promise<number> {
+    async provideTokenCount(model: vscode.LanguageModelChatInformation, text: string | vscode.LanguageModelChatRequestMessage, token: vscode.CancellationToken): Promise<number> {
         if (typeof text === "string") {
 			return Math.ceil(text.length / 4);
 		}
@@ -59,7 +43,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
         return Math.ceil(json.length / 4);
     }
 
-    async provideLanguageModelChatResponse(model: LanguageModelChatInformation, messages: readonly LanguageModelChatRequestMessage[], options: ProvideLanguageModelChatResponseOptions, progress: Progress<LanguageModelResponsePart>, token: CancellationToken): Promise<void> {
+    async provideLanguageModelChatResponse(model: vscode.LanguageModelChatInformation, messages: readonly vscode.LanguageModelChatRequestMessage[], options: vscode.ProvideLanguageModelChatResponseOptions, progress: vscode.Progress<vscode.LanguageModelResponsePart>, token: vscode.CancellationToken): Promise<void> {
         const client = await this.createClient();
 
         const input: ChatCompletionMessageParam[] = [];
@@ -74,9 +58,9 @@ export class ChatModelProvider implements LanguageModelChatProvider {
         })) ?? [];
 
         for (const message of messages) {
-            if (message.role === LanguageModelChatMessageRole.User) {
+            if (message.role === vscode.LanguageModelChatMessageRole.User) {
                 for (const part of message.content) {
-                    if (part instanceof LanguageModelTextPart) {
+                    if (part instanceof vscode.LanguageModelTextPart) {
                         if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
                             continue;
                         }
@@ -87,18 +71,18 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                         });
                     }
 
-                    if (part instanceof LanguageModelToolResultPart) {
+                    if (part instanceof vscode.LanguageModelToolResultPart) {
                         input.push({
                             role: "tool",
                             tool_call_id: part.callId,
                             content: part.content
-                                .filter(p => p instanceof LanguageModelTextPart || p instanceof LanguageModelPromptTsxPart)
+                                .filter(p => p instanceof vscode.LanguageModelTextPart || p instanceof vscode.LanguageModelPromptTsxPart)
                                 .map(p => {
-                                    if (p instanceof LanguageModelTextPart) {
+                                    if (p instanceof vscode.LanguageModelTextPart) {
                                         return p.value;
                                     }
 
-                                    if (p instanceof LanguageModelPromptTsxPart) {
+                                    if (p instanceof vscode.LanguageModelPromptTsxPart) {
                                         return p.value;
                                     }
 
@@ -110,9 +94,9 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                 }
             }
 
-            if (message.role === LanguageModelChatMessageRole.Assistant) {
+            if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
                 for (const part of message.content) {
-                    if (part instanceof LanguageModelTextPart) {
+                    if (part instanceof vscode.LanguageModelTextPart) {
                         if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
                             continue;
                         }
@@ -123,7 +107,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                         });
                     }
 
-                    if (part instanceof LanguageModelToolCallPart) {
+                    if (part instanceof vscode.LanguageModelToolCallPart) {
                         input.push({
                             role: "assistant",
                             tool_calls: [{
@@ -140,29 +124,29 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                 }
             }
         }
-
-        const completion = await client.chat.completions.create({
+        
+        const runner = client.chat.completions.stream({
             model: model.id,
 
             tools: tools,
             messages: input,
+        })
+        .on('content', (diff) => {
+            progress.report(new vscode.LanguageModelTextPart(diff));
         });
 
+        const completion = await runner.finalChatCompletion();
         const result = completion.choices[0].message;
 
         result.tool_calls?.forEach(toolCall => {
             if (toolCall.type === "function" && toolCall.id && toolCall.function) {
-                progress.report(new LanguageModelToolCallPart(
+                progress.report(new vscode.LanguageModelToolCallPart(
                     toolCall.id, 
                     toolCall.function.name || '', 
                     JSON.parse(toolCall.function.arguments || '{}')
                 ));
             }
         });
-
-        if (result.content?.trim() !== '') {
-            progress.report(new LanguageModelTextPart(result.content!));
-        }
     }
 
     private async createClient(): Promise<OpenAI> {
