@@ -77,7 +77,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
             if (message.role === LanguageModelChatMessageRole.User) {
                 for (const part of message.content) {
                     if (part instanceof LanguageModelTextPart) {
-                        if (part.value.trim() === '') {
+                        if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
                             continue;
                         }
 
@@ -113,7 +113,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
             if (message.role === LanguageModelChatMessageRole.Assistant) {
                 for (const part of message.content) {
                     if (part instanceof LanguageModelTextPart) {
-                        if (part.value.trim() === '') {
+                        if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
                             continue;
                         }
 
