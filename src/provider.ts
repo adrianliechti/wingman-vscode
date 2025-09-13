@@ -51,7 +51,12 @@ export class ChatModelProvider implements LanguageModelChatProvider {
     }
 
     async provideTokenCount(model: LanguageModelChatInformation, text: string | LanguageModelChatRequestMessage, token: CancellationToken): Promise<number> {
-        return 0;
+        if (typeof text === "string") {
+			return Math.ceil(text.length / 4);
+		}
+        
+        const json = JSON.stringify(text);
+        return Math.ceil(json.length / 4);
     }
 
     async provideLanguageModelChatResponse(model: LanguageModelChatInformation, messages: readonly LanguageModelChatRequestMessage[], options: ProvideLanguageModelChatResponseOptions, progress: Progress<LanguageModelResponsePart>, token: CancellationToken): Promise<void> {
@@ -145,14 +150,18 @@ export class ChatModelProvider implements LanguageModelChatProvider {
 
         const result = completion.choices[0].message;
 
+        result.tool_calls?.forEach(toolCall => {
+            if (toolCall.type === "function" && toolCall.id && toolCall.function) {
+                progress.report(new LanguageModelToolCallPart(
+                    toolCall.id, 
+                    toolCall.function.name || '', 
+                    JSON.parse(toolCall.function.arguments || '{}')
+                ));
+            }
+        });
+
         if (result.content?.trim() !== '') {
             progress.report(new LanguageModelTextPart(result.content!));
-        }
-
-        for (const toolCall of result.tool_calls ?? []) {
-            if (toolCall.type === "function") {
-                progress.report(new LanguageModelToolCallPart(toolCall.id!, toolCall.function!.name ?? '', JSON.parse(toolCall.function!.arguments || '')));
-            }
         }
     }
 
