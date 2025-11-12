@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
+import { ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider {
     constructor() {
@@ -26,7 +26,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
 
         const results: vscode.LanguageModelChatInformation[] = [];
 
-         if (mainModel) {
+        if (mainModel) {
             results.push({
                 id: mainModel,
 
@@ -92,68 +92,81 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
 
         for (const message of messages) {
             if (message.role === vscode.LanguageModelChatMessageRole.User) {
+                const textParts: Array<ChatCompletionContentPartText> = [];
+
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
-                        if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
-                            continue;
+                        if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
+                            textParts.push({
+                                type: "text",
+
+                                text: part.value
+                            });
                         }
-
-                        input.push({
-                            role: "user",
-                            content: part.value
-                        });
                     }
 
-                    if (part instanceof vscode.LanguageModelToolResultPart) {
-                        input.push({
-                            role: "tool",
-                            tool_call_id: part.callId,
-                            content: part.content
-                                .filter(p => p instanceof vscode.LanguageModelTextPart || p instanceof vscode.LanguageModelPromptTsxPart)
-                                .map(p => {
-                                    if (p instanceof vscode.LanguageModelTextPart) {
-                                        return p.value;
-                                    }
+                    //if (part instanceof vscode.LanguageModelToolResultPart) {
+                    if (this.isToolResultPart(part)) {
+                        const toolResultContent = this.collectToolResultText(part);
 
-                                    if (p instanceof vscode.LanguageModelPromptTsxPart) {
-                                        return p.value;
-                                    }
-
-                                    return '';
-                                })
-                                .join('')
-                        });
+                        if (toolResultContent.trim()) {
+                            input.push({
+                                role: "tool",
+                                tool_call_id: part.callId,
+                                content: toolResultContent
+                            });
+                        }
                     }
+                }
+
+                if (textParts.length > 0) {
+                    input.push({
+                        role: "assistant",
+                        content: textParts
+                    });
                 }
             }
 
             if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
+                const textParts: Array<ChatCompletionContentPartText> = [];
+                const toolCalls: Array<ChatCompletionMessageToolCall> = [];
+
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
-                        if (!part.value.trim() || part.value.trim().toLowerCase() === 'undefined') {
-                            continue;
-                        }
+                        if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
+                            textParts.push({
+                                type: "text",
 
-                        input.push({
-                            role: "assistant",
-                            content: part.value
-                        });
+                                text: part.value
+                            });
+                        }
                     }
 
                     if (part instanceof vscode.LanguageModelToolCallPart) {
-                        input.push({
-                            role: "assistant",
-                            tool_calls: [{
-                                id: part.callId,
-                                type: "function",
+                        toolCalls.push({
+                            type: "function",
 
-                                function: {
-                                    name: part.name,
-                                    arguments: JSON.stringify(part.input)
-                                }
-                            }]
+                            id: part.callId,
+                            function: {
+                                name: part.name,
+                                arguments: JSON.stringify(part.input)
+                            }
                         });
                     }
+                }
+
+                if (textParts.length > 0) {
+                    input.push({
+                        role: "assistant",
+                        content: textParts
+                    });
+                }
+
+                if (toolCalls.length > 0) {
+                    input.push({
+                        role: "assistant",
+                        tool_calls: toolCalls
+                    });
                 }
             }
         }
@@ -198,5 +211,35 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             project: null,
             webhookSecret: null
         });
+    }
+
+    private isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
+        if (!value || typeof value !== "object") {
+            return false;
+        }
+
+        const obj = value as Record<string, unknown>;
+        const hasCallId = typeof obj.callId === "string";
+        const hasContent = "content" in obj;
+        return hasCallId && hasContent;
+    }
+
+    private collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string {
+        let text = "";
+
+        for (const c of pr.content ?? []) {
+            if (c instanceof vscode.LanguageModelTextPart) {
+                text += c.value;
+            } else if (typeof c === "string") {
+                text += c;
+            } else {
+                try {
+                    text += JSON.stringify(c);
+                } catch {
+                }
+            }
+        }
+
+        return text;
     }
 }

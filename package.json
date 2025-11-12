@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -60,10 +60,10 @@
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.6.0",
-    "eslint": "^9.34.0",
-    "typescript": "^5.9.2"
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "openai": "^5.20.1"
+    "openai": "^6.8.1"
   }
 }
