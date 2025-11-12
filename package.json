@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -14,25 +14,33 @@
     "vscode": "^1.104.0"
   },
   "categories": [
-		"AI",
-		"Chat"
-	],
+    "AI",
+    "Chat"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Wingman",
+      "properties": {
+        "wingman.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:4242/v1",
+          "scope": "machine"
+        },
+        "wingman.apiKey": {
+          "type": "string",
+          "default": "",
+          "scope": "machine"
+        }
+      }
+    },
     "languageModelChatProviders": [
       {
         "vendor": "wingman",
-        "displayName": "Wingman",
-        "managementCommand": "wingman.manage"
+        "displayName": "Wingman"
       }
-    ],
-    "commands": [
-			{
-				"command": "wingman.manage",
-				"title": "Manage Wingman Provider"
-			}
-		]
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

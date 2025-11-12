@@ -1,44 +1,77 @@
 import * as vscode from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
+import { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider {
-    constructor(private readonly secrets: vscode.SecretStorage) {
+    constructor() {
     }
 
     async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
-        const apiKey = await this.ensureAPIKey(options.silent);
-        const baseUrl = await this.ensureBaseUrl(options.silent);
-		
-        if (!apiKey || !baseUrl) {
-			return [];
-		}
+        const client = await this.createClient();
 
-        return [{
-            id: "gpt-5",
+        const list = await client.models.list();
 
-            name: "Wingman Coder",
+        const findModel = (...candidates: string[]): string => {
+            const models = list.data.map(model => model.id);
+            return candidates.find(model => models.includes(model)) || "";
+        };
 
-            family: "gpt5",
+        const mainModel = findModel('gpt-5-codex', 'gpt-5', 'o3');
+        const miniModel = findModel('gpt-5-codex-mini', 'gpt-5-mini', 'o4-mini');
 
-            version: "1",
+        // https://github.com/microsoft/vscode-copilot-chat/blob/main/src/extension/byok/common/byokProvider.ts
+        const maxInputTokens = 200000; // 100000 (Default), 272000 (GPT-5)
+        const maxOutputTokens = 32000; // 8192 (Default),   128000 (GPT-5)
 
-            maxInputTokens: 128000,
-            maxOutputTokens: 400000,
+        const results: vscode.LanguageModelChatInformation[] = [];
 
-            capabilities: {
-                toolCalling: true,
-                imageInput: true,
-            },
-        }];
+         if (mainModel) {
+            results.push({
+                id: mainModel,
+
+                name: "Wingman Coder",
+
+                family: mainModel,
+                version: "",
+
+                maxInputTokens: maxInputTokens,
+                maxOutputTokens: maxOutputTokens,
+
+                capabilities: {
+                    toolCalling: true,
+                    imageInput: true,
+                },
+            });
+        }
+
+        if (miniModel) {
+            results.push({
+                id: miniModel,
+
+                name: "Wingman Coder Mini",
+
+                family: miniModel,
+                version: "",
+
+                maxInputTokens: maxInputTokens,
+                maxOutputTokens: maxOutputTokens,
+
+                capabilities: {
+                    toolCalling: true,
+                    imageInput: true,
+                },
+            });
+        }
+
+        return results;
     }
 
     async provideTokenCount(model: vscode.LanguageModelChatInformation, text: string | vscode.LanguageModelChatRequestMessage, token: vscode.CancellationToken): Promise<number> {
         if (typeof text === "string") {
-			return Math.ceil(text.length / 4);
-		}
-        
+            return Math.ceil(text.length / 4);
+        }
+
         const json = JSON.stringify(text);
         return Math.ceil(json.length / 4);
     }
@@ -124,16 +157,18 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                 }
             }
         }
-        
+
         const runner = client.chat.completions.stream({
             model: model.id,
 
             tools: tools,
+            tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
+
             messages: input,
         })
-        .on('content', (diff) => {
-            progress.report(new vscode.LanguageModelTextPart(diff));
-        });
+            .on('content', (diff) => {
+                progress.report(new vscode.LanguageModelTextPart(diff));
+            });
 
         const completion = await runner.finalChatCompletion();
         const result = completion.choices[0].message;
@@ -141,8 +176,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         result.tool_calls?.forEach(toolCall => {
             if (toolCall.type === "function" && toolCall.id && toolCall.function) {
                 progress.report(new vscode.LanguageModelToolCallPart(
-                    toolCall.id, 
-                    toolCall.function.name || '', 
+                    toolCall.id,
+                    toolCall.function.name || '',
                     JSON.parse(toolCall.function.arguments || '{}')
                 ));
             }
@@ -150,58 +185,18 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
     }
 
     private async createClient(): Promise<OpenAI> {
-        const baseURL = await this.ensureBaseUrl(true);
-        const apiKey = await this.ensureAPIKey(true);
+        const config = vscode.workspace.getConfiguration('wingman');
 
-        if (!baseURL || !apiKey) {
-            throw new Error("Missing API key or Base URL");
-        }
+        const baseUrl = config.get<string>('baseUrl', 'http://localhost:4242/v1');
+        const apiKey = config.get<string>('apiKey', '');
 
         return new OpenAI({
-            baseURL: baseURL,
-            apiKey: apiKey
+            baseURL: baseUrl,
+            apiKey: apiKey,
+
+            organization: null,
+            project: null,
+            webhookSecret: null
         });
     }
-
-    private async ensureBaseUrl(silent: boolean): Promise<string | undefined> {
-		let baseUrl = await this.secrets.get("wingman.baseUrl");
-
-		if (!baseUrl && !silent) {
-			const entered = await vscode.window.showInputBox({
-				title: "Wingman Base Url",
-				prompt: "Enter Wingman Base Url",
-				ignoreFocusOut: true,
-				password: false,
-                value: "http://localhost:8080/v1",
-			});
-
-			if (entered && entered.trim()) {
-				baseUrl = entered.trim();
-				await this.secrets.store("wingman.baseUrl", baseUrl);
-			}
-		}
-
-		return baseUrl;
-	}
-
-    private async ensureAPIKey(silent: boolean): Promise<string | undefined> {
-		let apiKey = await this.secrets.get("wingman.apiKey");
-
-		if (!apiKey && !silent) {
-			const entered = await vscode.window.showInputBox({
-				title: "Wingman API Key",
-				prompt: "Enter Wingman API key",
-				ignoreFocusOut: true,
-				password: true,
-                value: "-"
-			});
-
-			if (entered && entered.trim()) {
-				apiKey = entered.trim();
-				await this.secrets.store("wingman.apiKey", apiKey);
-			}
-		}
-
-		return apiKey;
-	}
 }
