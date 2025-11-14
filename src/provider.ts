@@ -17,12 +17,20 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             return candidates.find(model => models.includes(model)) || "";
         };
 
-        const mainModel = findModel('gpt-5-codex', 'gpt-5', 'o3');
-        const miniModel = findModel('gpt-5-codex-mini', 'gpt-5-mini', 'o4-mini');
+        const mainModel = findModel(
+            'gpt-5.1-codex',
+            'gpt-5-codex',
+            'gpt-5.1',
+            'gpt-5',
+        );
 
-        // https://github.com/microsoft/vscode-copilot-chat/blob/main/src/extension/byok/common/byokProvider.ts
-        const maxInputTokens = 200000; // 100000 (Default), 272000 (GPT-5)
-        const maxOutputTokens = 32000; // 8192 (Default),   128000 (GPT-5)
+        const miniModel = findModel(
+            'gpt-5.1-codex-mini',
+            'gpt-5-mini',
+        );
+
+        const maxInputTokens = 272000;
+        const maxOutputTokens = 128000;
 
         const results: vscode.LanguageModelChatInformation[] = [];
 

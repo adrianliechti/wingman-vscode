@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -64,6 +64,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "openai": "^6.8.1"
+    "openai": "^6.9.0"
   }
 }
