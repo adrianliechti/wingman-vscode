@@ -18,6 +18,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         };
 
         const mainModel = findModel(
+            'gpt-5.1-codex-max',
             'gpt-5.1-codex',
             'gpt-5-codex',
             'gpt-5.1',
