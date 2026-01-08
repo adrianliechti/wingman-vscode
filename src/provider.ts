@@ -18,6 +18,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         };
 
         const mainModel = findModel(
+            'claude-sonnet-4-5',
+
             'gpt-5.2-codex',
             'gpt-5.2',
             'gpt-5.1-codex-max',
@@ -27,7 +29,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             'gpt-5',
         );
 
+        const maxModel = findModel(
+            'claude-opus-4-5',
+        );
+
         const miniModel = findModel(
+            'claude-haiku-4-5',
+            
             'gpt-5.1-codex-mini',
             'gpt-5-mini',
         );
@@ -44,6 +52,25 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                 name: "Wingman Coder",
 
                 family: mainModel,
+                version: "",
+
+                maxInputTokens: maxInputTokens,
+                maxOutputTokens: maxOutputTokens,
+
+                capabilities: {
+                    toolCalling: true,
+                    imageInput: true,
+                },
+            });
+        }
+
+        if (maxModel) {
+            results.push({
+                id: maxModel,
+
+                name: "Wingman Coder Max",
+
+                family: maxModel,
                 version: "",
 
                 maxInputTokens: maxInputTokens,
