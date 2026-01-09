@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
+import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider {
     constructor() {
@@ -129,21 +129,46 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         })) ?? [];
 
         for (const message of messages) {
+            // Handle System messages (any role that's not User or Assistant)
+            if (message.role !== vscode.LanguageModelChatMessageRole.User && 
+                message.role !== vscode.LanguageModelChatMessageRole.Assistant) {
+                const textContent = message.content
+                    .filter((part): part is vscode.LanguageModelTextPart => part instanceof vscode.LanguageModelTextPart)
+                    .map(part => part.value)
+                    .join("");
+                
+                if (textContent.trim()) {
+                    input.push({
+                        role: "system",
+                        content: textContent
+                    });
+                }
+                continue;
+            }
+
             if (message.role === vscode.LanguageModelChatMessageRole.User) {
-                const textParts: Array<ChatCompletionContentPartText> = [];
+                const contentParts: Array<ChatCompletionContentPart> = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
-                            textParts.push({
+                            contentParts.push({
                                 type: "text",
-
                                 text: part.value
                             });
                         }
                     }
 
-                    //if (part instanceof vscode.LanguageModelToolResultPart) {
+                    if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
+                        const base64Data = Buffer.from(part.data).toString('base64');
+                        contentParts.push({
+                            type: "image_url",
+                            image_url: {
+                                url: `data:${part.mimeType};base64,${base64Data}`
+                            }
+                        });
+                    }
+
                     if (this.isToolResultPart(part)) {
                         const toolResultContent = this.collectToolResultText(part);
 
@@ -157,10 +182,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                     }
                 }
 
-                if (textParts.length > 0) {
+                if (contentParts.length > 0) {
                     input.push({
-                        role: "assistant",
-                        content: textParts
+                        role: "user",
+                        content: contentParts
                     });
                 }
             }
@@ -174,7 +199,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                         if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
                             textParts.push({
                                 type: "text",
-
                                 text: part.value
                             });
                         }
@@ -183,7 +207,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                     if (part instanceof vscode.LanguageModelToolCallPart) {
                         toolCalls.push({
                             type: "function",
-
                             id: part.callId,
                             function: {
                                 name: part.name,
@@ -193,18 +216,18 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
                     }
                 }
 
-                if (textParts.length > 0) {
-                    input.push({
+                // Combine text and tool_calls into a single assistant message to avoid consecutive assistant messages
+                if (textParts.length > 0 || toolCalls.length > 0) {
+                    const assistantMessage: ChatCompletionMessageParam = {
                         role: "assistant",
-                        content: textParts
-                    });
-                }
+                        content: textParts.length > 0 ? textParts : null,
+                    };
 
-                if (toolCalls.length > 0) {
-                    input.push({
-                        role: "assistant",
-                        tool_calls: toolCalls
-                    });
+                    if (toolCalls.length > 0) {
+                        (assistantMessage as any).tool_calls = toolCalls;
+                    }
+
+                    input.push(assistantMessage);
                 }
             }
         }
@@ -212,8 +235,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         const runner = client.chat.completions.stream({
             model: model.id,
 
-            tools: tools,
-            tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
+            ...(tools.length > 0 && {
+                tools: tools,
+                tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
+            }),
 
             messages: input,
         })
