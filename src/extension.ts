@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import { ChatModelProvider } from "./provider";
 
-
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-	const provider = new ChatModelProvider();
-	vscode.lm.registerLanguageModelChatProvider("wingman", provider);
+	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
+	const provider = new ChatModelProvider(context, logger);
+	
+	context.subscriptions.push(
+		logger,
+		vscode.lm.registerLanguageModelChatProvider('wingman', provider),
+	);
 }
 
 export function deactivate() { }

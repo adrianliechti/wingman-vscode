@@ -1,16 +1,41 @@
 import * as vscode from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool, ChatCompletionToolChoiceOption } from "openai/resources/chat/completions";
+import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool } from "openai/resources/chat/completions";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider {
-    constructor() {
+    private client?: OpenAI;
+
+    private apiKey?: string;
+    private baseUrl?: string;
+
+    private readonly logger: vscode.LogOutputChannel;
+
+    constructor(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel) {
+        this.logger = logger;
+
+        // Listen for configuration changes to invalidate cached client
+        context.subscriptions.push(
+            vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('wingman')) {
+                    this.client = undefined;
+                    this.logger.info('Configuration changed, client invalidated');
+                }
+            })
+        );
     }
 
     async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
-        const client = await this.createClient();
+        if (token.isCancellationRequested) {
+            return [];
+        }
 
+        const client = await this.createClient();
         const list = await client.models.list();
+
+        if (token.isCancellationRequested) {
+            return [];
+        }
 
         const findModel = (...candidates: string[]): string => {
             const models = list.data.map(model => model.id);
@@ -35,13 +60,15 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
 
         const miniModel = findModel(
             'claude-haiku-4-5',
-            
+
             'gpt-5.1-codex-mini',
             'gpt-5-mini',
         );
 
         const maxInputTokens = 127805;
         const maxOutputTokens = 16000;
+
+        this.logger.info('Models:', `main=${mainModel || 'none'}, mini=${miniModel || 'none'}, max=${maxModel || 'none'}`);
 
         const results: vscode.LanguageModelChatInformation[] = [];
 
@@ -115,6 +142,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
     }
 
     async provideLanguageModelChatResponse(model: vscode.LanguageModelChatInformation, messages: readonly vscode.LanguageModelChatRequestMessage[], options: vscode.ProvideLanguageModelChatResponseOptions, progress: vscode.Progress<vscode.LanguageModelResponsePart>, token: vscode.CancellationToken): Promise<void> {
+        if (token.isCancellationRequested) {
+            return;
+        }
+
         const client = await this.createClient();
 
         const input: ChatCompletionMessageParam[] = [];
@@ -130,13 +161,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
 
         for (const message of messages) {
             // Handle System messages (any role that's not User or Assistant)
-            if (message.role !== vscode.LanguageModelChatMessageRole.User && 
+            if (message.role !== vscode.LanguageModelChatMessageRole.User &&
                 message.role !== vscode.LanguageModelChatMessageRole.Assistant) {
                 const textContent = message.content
                     .filter((part): part is vscode.LanguageModelTextPart => part instanceof vscode.LanguageModelTextPart)
                     .map(part => part.value)
                     .join("");
-                
+
                 if (textContent.trim()) {
                     input.push({
                         role: "system",
@@ -241,23 +272,47 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             }),
 
             messages: input,
-        })
-            .on('content', (diff) => {
-                progress.report(new vscode.LanguageModelTextPart(diff));
-            });
-
-        const completion = await runner.finalChatCompletion();
-        const result = completion.choices[0].message;
-
-        result.tool_calls?.forEach(toolCall => {
-            if (toolCall.type === "function" && toolCall.id && toolCall.function) {
-                progress.report(new vscode.LanguageModelToolCallPart(
-                    toolCall.id,
-                    toolCall.function.name || '',
-                    JSON.parse(toolCall.function.arguments || '{}')
-                ));
-            }
+        }).on('content', (diff) => {
+            progress.report(new vscode.LanguageModelTextPart(diff));
         });
+
+        const cancellationListener = token.onCancellationRequested(() => {
+            runner.abort();
+        });
+
+        try {
+            const completion = await runner.finalChatCompletion();
+            const result = completion.choices[0]?.message;
+
+            if (!result) {
+                return;
+            }
+
+            result.tool_calls?.forEach(toolCall => {
+                if (toolCall.type === "function" && toolCall.id && toolCall.function) {
+                    let parsedArgs = {};
+                    try {
+                        parsedArgs = JSON.parse(toolCall.function.arguments || '{}');
+                    } catch (parseError) {
+                        this.logger.error('Failed to parse tool arguments:', toolCall.function.arguments || '');
+                    }
+                    progress.report(new vscode.LanguageModelToolCallPart(
+                        toolCall.id,
+                        toolCall.function.name || '',
+                        parsedArgs
+                    ));
+                }
+            });
+        } catch (error) {
+            if (token.isCancellationRequested) {
+                // Cancellation is expected, don't throw
+                return;
+            }
+            this.logger.error('Chat completion failed:', String(error));
+            throw error;
+        } finally {
+            cancellationListener.dispose();
+        }
     }
 
     private async createClient(): Promise<OpenAI> {
@@ -266,7 +321,18 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         const baseUrl = config.get<string>('baseUrl', 'http://localhost:4242/v1');
         const apiKey = config.get<string>('apiKey', '');
 
-        return new OpenAI({
+        // Return cached client if configuration hasn't changed
+        if (this.client && this.baseUrl === baseUrl && this.apiKey === apiKey) {
+            return this.client;
+        }
+
+        // Cache new configuration and create new client
+        this.apiKey = apiKey;
+        this.baseUrl = baseUrl;
+
+        this.logger.info('Platform:', baseUrl);
+
+        this.client = new OpenAI({
             baseURL: baseUrl,
             apiKey: apiKey,
 
@@ -274,6 +340,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             project: null,
             webhookSecret: null
         });
+
+        return this.client;
     }
 
     private isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
