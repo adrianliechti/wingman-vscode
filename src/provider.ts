@@ -40,8 +40,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             'gpt-5-mini',
         );
 
-        const maxInputTokens = 272000;
-        const maxOutputTokens = 128000;
+        const maxInputTokens = 127805;
+        const maxOutputTokens = 16000;
 
         const results: vscode.LanguageModelChatInformation[] = [];
 
