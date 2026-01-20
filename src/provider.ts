@@ -37,97 +37,49 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
             return [];
         }
 
-        const findModel = (...candidates: string[]): string => {
-            const models = list.data.map(model => model.id);
-            return candidates.find(model => models.includes(model)) || "";
-        };
+        const availableModels = new Set(list.data.map(model => model.id));
 
-        const mainModel = findModel(
-            'claude-sonnet-4-5',
+        // Define candidate groups - each group uses the first available model from its list
+        const candidates: Array<{ name: string; models: string[] }> = [
+            // OpenAI models
+            { name: 'Wingman Codex', models: ['gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1', 'gpt-5-codex', 'gpt-5'] },
+            { name: 'Wingman Codex Max', models: ['gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max'] },
+            { name: 'Wingman Codex Mini', models: ['gpt-5.1-codex-mini', 'gpt-5-mini'] },
 
-            'gpt-5.2-codex',
-            'gpt-5.2',
-            'gpt-5.1-codex-max',
-            'gpt-5.1-codex',
-            'gpt-5.1',
-            'gpt-5-codex',
-            'gpt-5',
-        );
+            // Gemini models
+            { name: 'Wingman Gemini Pro', models: ['gemini-3-pro', 'gemini-3-pro-preview', 'gemini-2.5-pro'] },
+            { name: 'Wingman Gemini Flash', models: ['gemini-3-flash-preview', 'gemini-2.5-flash'] },
 
-        const maxModel = findModel(
-            'claude-opus-4-5',
-        );
-
-        const miniModel = findModel(
-            'claude-haiku-4-5',
-
-            'gpt-5.1-codex-mini',
-            'gpt-5-mini',
-        );
+            // Claude models
+            { name: 'Wingman Claude Sonnet', models: ['claude-sonnet-4-5'] },
+            { name: 'Wingman Claude Opus', models: ['claude-opus-4-5'] },
+            { name: 'Wingman Claude Haiku', models: ['claude-haiku-4-5'] },
+        ];
 
         const maxInputTokens = 127805;
         const maxOutputTokens = 16000;
 
-        this.logger.info('Models:', `main=${mainModel || 'none'}, mini=${miniModel || 'none'}, max=${maxModel || 'none'}`);
-
-        const results: vscode.LanguageModelChatInformation[] = [];
-
-        if (mainModel) {
-            results.push({
-                id: mainModel,
-
-                name: "Wingman Coder",
-
-                family: mainModel,
+        // For each candidate group, find the first available model
+        const results: vscode.LanguageModelChatInformation[] = candidates
+            .map(candidate => {
+                const modelId = candidate.models.find(id => availableModels.has(id));
+                return modelId ? { id: modelId, name: candidate.name } : null;
+            })
+            .filter((entry): entry is { id: string; name: string } => entry !== null)
+            .map(entry => ({
+                id: entry.id,
+                name: entry.name,
+                family: entry.id,
                 version: "",
-
                 maxInputTokens: maxInputTokens,
                 maxOutputTokens: maxOutputTokens,
-
                 capabilities: {
                     toolCalling: true,
                     imageInput: true,
                 },
-            });
-        }
+            }));
 
-        if (maxModel) {
-            results.push({
-                id: maxModel,
-
-                name: "Wingman Coder Max",
-
-                family: maxModel,
-                version: "",
-
-                maxInputTokens: maxInputTokens,
-                maxOutputTokens: maxOutputTokens,
-
-                capabilities: {
-                    toolCalling: true,
-                    imageInput: true,
-                },
-            });
-        }
-
-        if (miniModel) {
-            results.push({
-                id: miniModel,
-
-                name: "Wingman Coder Mini",
-
-                family: miniModel,
-                version: "",
-
-                maxInputTokens: maxInputTokens,
-                maxOutputTokens: maxOutputTokens,
-
-                capabilities: {
-                    toolCalling: true,
-                    imageInput: true,
-                },
-            });
-        }
+        this.logger.info('Available models:', results.map(r => r.id).join(', ') || 'none');
 
         return results;
     }
