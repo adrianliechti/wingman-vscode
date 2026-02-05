@@ -3,7 +3,44 @@ import * as vscode from "vscode";
 import OpenAI from 'openai';
 import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool } from "openai/resources/chat/completions";
 
-export class ChatModelProvider implements vscode.LanguageModelChatProvider {
+interface ModelLimits {
+    maxInputTokens: number;
+    maxOutputTokens: number;
+}
+
+interface ModelInfo extends vscode.LanguageModelChatInformation {
+}
+
+const defaultModelLimits: ModelLimits = { maxInputTokens: 128000, maxOutputTokens: 16000 };
+
+const modelLimits: Record<string, ModelLimits> = {
+    // OpenAI models
+    'gpt-5.3-codex':      { maxInputTokens: 271805, maxOutputTokens: 128000 },
+    'gpt-5.2-codex':      { maxInputTokens: 271805, maxOutputTokens: 128000 },
+    'gpt-5.2':            { maxInputTokens: 127805, maxOutputTokens: 64000 },
+    'gpt-5.1-codex-max':  { maxInputTokens: 127805, maxOutputTokens: 128000 },
+    'gpt-5.1-codex':      { maxInputTokens: 127805, maxOutputTokens: 128000 },
+    'gpt-5.1':            { maxInputTokens: 127805, maxOutputTokens: 64000 },
+    'gpt-5-codex':        { maxInputTokens: 127805, maxOutputTokens: 128000 },
+    'gpt-5':              { maxInputTokens: 127805, maxOutputTokens: 128000 },
+    'gpt-5.1-codex-mini': { maxInputTokens: 127805, maxOutputTokens: 128000 },
+    'gpt-5-mini':         { maxInputTokens: 127805, maxOutputTokens: 64000 },
+
+    // Gemini models
+    'gemini-3-pro':           { maxInputTokens: 108609, maxOutputTokens: 64000 },
+    'gemini-3-pro-preview':   { maxInputTokens: 108609, maxOutputTokens: 64000 },
+    'gemini-2.5-pro':         { maxInputTokens: 108609, maxOutputTokens: 64000 },
+    'gemini-3-flash-preview': { maxInputTokens: 108609, maxOutputTokens: 64000 },
+    'gemini-2.5-flash':       { maxInputTokens: 108609, maxOutputTokens: 64000 },
+
+    // Claude models
+    'claude-opus-4-6':   { maxInputTokens: 127805, maxOutputTokens: 64000 },
+    'claude-opus-4-5':   { maxInputTokens: 127805, maxOutputTokens: 32000 },
+    'claude-sonnet-4-5': { maxInputTokens: 127805, maxOutputTokens: 32000 },
+    'claude-haiku-4-5':  { maxInputTokens: 127805, maxOutputTokens: 32000 },
+};
+
+export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
 
     private apiKey?: string;
@@ -25,7 +62,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         );
     }
 
-    async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<vscode.LanguageModelChatInformation[]> {
+    async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<ModelInfo[]> {
         if (token.isCancellationRequested) {
             return [];
         }
@@ -42,8 +79,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         // Define candidate groups - each group uses the first available model from its list
         const candidates: Array<{ name: string; models: string[] }> = [
             // OpenAI models
-            { name: 'Wingman Codex', models: ['gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1', 'gpt-5-codex', 'gpt-5'] },
-            { name: 'Wingman Codex Max', models: ['gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max'] },
+            { name: 'Wingman Codex', models: ['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1', 'gpt-5-codex', 'gpt-5'] },
             { name: 'Wingman Codex Mini', models: ['gpt-5.1-codex-mini', 'gpt-5-mini'] },
 
             // Gemini models
@@ -52,39 +88,39 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
 
             // Claude models
             { name: 'Wingman Claude Sonnet', models: ['claude-sonnet-4-5'] },
-            { name: 'Wingman Claude Opus', models: ['claude-opus-4-5'] },
+            { name: 'Wingman Claude Opus', models: [ 'claude-opus-4-6', 'claude-opus-4-5'] },
             { name: 'Wingman Claude Haiku', models: ['claude-haiku-4-5'] },
         ];
 
-        const maxInputTokens = 127805;
-        const maxOutputTokens = 16000;
-
         // For each candidate group, find the first available model
-        const results: vscode.LanguageModelChatInformation[] = candidates
+        const results: ModelInfo[] = candidates
             .map(candidate => {
                 const modelId = candidate.models.find(id => availableModels.has(id));
-                return modelId ? { id: modelId, name: candidate.name } : null;
+                return modelId ? { modelId, name: candidate.name } : null;
             })
-            .filter((entry): entry is { id: string; name: string } => entry !== null)
-            .map(entry => ({
-                id: entry.id,
-                name: entry.name,
-                family: entry.id,
-                version: "",
-                maxInputTokens: maxInputTokens,
-                maxOutputTokens: maxOutputTokens,
-                capabilities: {
-                    toolCalling: true,
-                    imageInput: true,
-                },
-            }));
+            .filter(<T>(entry: T): entry is NonNullable<T> => entry !== null)
+            .map(entry => {
+                const limits = modelLimits[entry.modelId] ?? defaultModelLimits;
+                return {
+                    id: entry.modelId,
+                    name: entry.name,
+                    family: entry.modelId,
+                    version: "",
+                    maxInputTokens: limits.maxInputTokens,
+                    maxOutputTokens: limits.maxOutputTokens,
+                    capabilities: {
+                        toolCalling: true,
+                        imageInput: true,
+                    },
+                };
+            });
 
         this.logger.info('Available models:', results.map(r => r.id).join(', ') || 'none');
 
         return results;
     }
 
-    async provideTokenCount(model: vscode.LanguageModelChatInformation, text: string | vscode.LanguageModelChatRequestMessage, token: vscode.CancellationToken): Promise<number> {
+    async provideTokenCount(model: ModelInfo, text: string | vscode.LanguageModelChatRequestMessage, token: vscode.CancellationToken): Promise<number> {
         if (typeof text === "string") {
             return Math.ceil(text.length / 4);
         }
@@ -93,7 +129,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider {
         return Math.ceil(json.length / 4);
     }
 
-    async provideLanguageModelChatResponse(model: vscode.LanguageModelChatInformation, messages: readonly vscode.LanguageModelChatRequestMessage[], options: vscode.ProvideLanguageModelChatResponseOptions, progress: vscode.Progress<vscode.LanguageModelResponsePart>, token: vscode.CancellationToken): Promise<void> {
+    async provideLanguageModelChatResponse(model: ModelInfo, messages: readonly vscode.LanguageModelChatRequestMessage[], options: vscode.ProvideLanguageModelChatResponseOptions, progress: vscode.Progress<vscode.LanguageModelResponsePart>, token: vscode.CancellationToken): Promise<void> {
         if (token.isCancellationRequested) {
             return;
         }
