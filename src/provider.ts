@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 import OpenAI from 'openai';
 import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool } from "openai/resources/chat/completions";
-import { ModelInfo, candidates, defaultModelLimits, modelLimits } from "./models";
+import { ModelInfo, candidates } from "./models";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -32,36 +32,35 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         }
 
         const client = await this.createClient();
-        const list = await client.models.list();
+        const models = new Set((await client.models.list()).data.map(model => model.id));
 
         if (token.isCancellationRequested) {
             return [];
         }
 
-        const availableModels = new Set(list.data.map(model => model.id));
+        const results = candidates.flatMap(candidate => {
+            const match = candidate.models.find(m => models.has(m.id));
+            
+            if (!match) {
+                return [];
+            }
 
-        // For each candidate group, find the first available model
-        const results: ModelInfo[] = candidates
-            .map(candidate => {
-                const modelId = candidate.models.find(id => availableModels.has(id));
-                return modelId ? { modelId, name: candidate.name } : null;
-            })
-            .filter(<T>(entry: T): entry is NonNullable<T> => entry !== null)
-            .map(entry => {
-                const limits = modelLimits[entry.modelId] ?? defaultModelLimits;
-                return {
-                    id: entry.modelId,
-                    name: entry.name,
-                    family: entry.modelId,
-                    version: "",
-                    maxInputTokens: limits.maxInputTokens,
-                    maxOutputTokens: limits.maxOutputTokens,
-                    capabilities: {
-                        toolCalling: true,
-                        imageInput: true,
-                    },
-                };
-            });
+            return [{
+                id: match.id,
+                name: candidate.name,
+                
+                family: match.id,
+                version: "",
+                
+                maxInputTokens: match.limits.maxInputTokens,
+                maxOutputTokens: match.limits.maxOutputTokens,
+
+                capabilities: {
+                    imageInput: match.capabilities?.imageInput ?? false,
+                    toolCalling: match.capabilities?.toolCalling ?? false,
+                },
+            }];
+        });
 
         this.logger.info('Available models:', results.map(r => r.id).join(', ') || 'none');
 
@@ -118,15 +117,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
-                        if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
+                        if (this.isValidText(part.value)) {
                             contentParts.push({
                                 type: "text",
                                 text: part.value
                             });
                         }
-                    }
-
-                    if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
+                    } else if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
                         const base64Data = Buffer.from(part.data).toString('base64');
                         contentParts.push({
                             type: "image_url",
@@ -134,11 +131,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                                 url: `data:${part.mimeType};base64,${base64Data}`
                             }
                         });
-                    }
-
-                    if (this.isToolResultPart(part)) {
+                    } else if (this.isToolResultPart(part)) {
                         const toolResultContent = this.collectToolResultText(part);
-
                         if (toolResultContent.trim()) {
                             input.push({
                                 role: "tool",
@@ -155,23 +149,19 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                         content: contentParts
                     });
                 }
-            }
-
-            if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
+            } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
                 const textParts: Array<ChatCompletionContentPartText> = [];
                 const toolCalls: Array<ChatCompletionMessageToolCall> = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
-                        if (part.value.trim() && part.value.trim().toLowerCase() !== 'undefined') {
+                        if (this.isValidText(part.value)) {
                             textParts.push({
                                 type: "text",
                                 text: part.value
                             });
                         }
-                    }
-
-                    if (part instanceof vscode.LanguageModelToolCallPart) {
+                    } else if (part instanceof vscode.LanguageModelToolCallPart) {
                         toolCalls.push({
                             type: "function",
                             id: part.callId,
@@ -280,6 +270,11 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         return this.client;
     }
 
+    private isValidText(value: string): boolean {
+        const trimmed = value.trim();
+        return trimmed.length > 0 && trimmed.toLowerCase() !== 'undefined';
+    }
+
     private isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
         if (!value || typeof value !== "object") {
             return false;
@@ -292,21 +287,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
     }
 
     private collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string {
-        let text = "";
-
-        for (const c of pr.content ?? []) {
-            if (c instanceof vscode.LanguageModelTextPart) {
-                text += c.value;
-            } else if (typeof c === "string") {
-                text += c;
-            } else {
-                try {
-                    text += JSON.stringify(c);
-                } catch {
-                }
-            }
-        }
-
-        return text;
+        return (pr.content ?? []).map(c => {
+            if (c instanceof vscode.LanguageModelTextPart) { return c.value; }
+            if (typeof c === "string") { return c; }
+            try { return JSON.stringify(c); } catch { return ""; }
+        }).join("");
     }
 }

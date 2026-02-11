@@ -1,54 +1,107 @@
 import * as vscode from "vscode";
 
+export interface ModelInfo extends vscode.LanguageModelChatInformation {
+}
+
 export interface ModelLimits {
     maxInputTokens: number;
     maxOutputTokens: number;
 }
 
-export interface ModelInfo extends vscode.LanguageModelChatInformation {
+export interface ModelCapabilities {
+    toolCalling?: boolean;
+    imageInput?: boolean;
 }
 
-export const defaultModelLimits: ModelLimits = { maxInputTokens: 128000, maxOutputTokens: 16000 };
+export interface ModelCandidate {
+    name: string;
+    models: Array<{ id: string; limits: ModelLimits; capabilities?: ModelCapabilities }>;
+}
 
-export const modelLimits: Record<string, ModelLimits> = {
+export const candidates: ModelCandidate[] = [
     // OpenAI models
-    'gpt-5.3-codex':      { maxInputTokens: 271805, maxOutputTokens: 128000 },
-    'gpt-5.2-codex':      { maxInputTokens: 271805, maxOutputTokens: 128000 },
-    'gpt-5.2':            { maxInputTokens: 127805, maxOutputTokens: 64000 },
-    'gpt-5.1-codex-max':  { maxInputTokens: 127805, maxOutputTokens: 128000 },
-    'gpt-5.1-codex':      { maxInputTokens: 127805, maxOutputTokens: 128000 },
-    'gpt-5.1':            { maxInputTokens: 127805, maxOutputTokens: 64000 },
-    'gpt-5-codex':        { maxInputTokens: 127805, maxOutputTokens: 128000 },
-    'gpt-5':              { maxInputTokens: 127805, maxOutputTokens: 128000 },
-    'gpt-5.1-codex-mini': { maxInputTokens: 127805, maxOutputTokens: 128000 },
-    'gpt-5-mini':         { maxInputTokens: 127805, maxOutputTokens: 64000 },
+    {
+        name: 'Wingman GPT',
+        models: [
+            { id: 'gpt-5.2', limits: { maxInputTokens: 127805, maxOutputTokens:  64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5.1', limits: { maxInputTokens: 127805, maxOutputTokens:  64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5',   limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman GPT Mini',
+        models: [
+            { id: 'gpt-5-mini', limits: { maxInputTokens: 127805, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman Codex',
+        models: [
+            { id: 'gpt-5.3-codex',     limits: { maxInputTokens: 271805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5.2-codex',     limits: { maxInputTokens: 271805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5.1-codex-max', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5.1-codex',     limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gpt-5-codex',       limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman Codex Mini',
+        models: [
+            { id: 'gpt-5.1-codex-mini', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
 
     // Gemini models
-    'gemini-3-pro':           { maxInputTokens: 108609, maxOutputTokens: 64000 },
-    'gemini-3-pro-preview':   { maxInputTokens: 108609, maxOutputTokens: 64000 },
-    'gemini-2.5-pro':         { maxInputTokens: 108609, maxOutputTokens: 64000 },
-    'gemini-3-flash':         { maxInputTokens: 108609, maxOutputTokens: 64000 },
-    'gemini-3-flash-preview': { maxInputTokens: 108609, maxOutputTokens: 64000 },
-    'gemini-2.5-flash':       { maxInputTokens: 108609, maxOutputTokens: 64000 },
+    {
+        name: 'Wingman Gemini Pro',
+        models: [
+            { id: 'gemini-3-pro',         limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-3-pro-preview', limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-2.5-pro',       limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman Gemini Flash',
+        models: [
+            { id: 'gemini-3-flash',         limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-3-flash-preview', limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-2.5-flash',       limits: { maxInputTokens: 108609, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
 
     // Claude models
-    'claude-opus-4-6':   { maxInputTokens: 127805, maxOutputTokens: 64000 },
-    'claude-opus-4-5':   { maxInputTokens: 127805, maxOutputTokens: 32000 },
-    'claude-sonnet-4-5': { maxInputTokens: 127805, maxOutputTokens: 32000 },
-    'claude-haiku-4-5':  { maxInputTokens: 127805, maxOutputTokens: 32000 },
-};
+    {
+        name: 'Wingman Claude Opus',
+        models: [
+            { id: 'claude-opus-4-6', limits: { maxInputTokens: 127805, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'claude-opus-4-5', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman Claude Sonnet',
+        models: [
+            { id: 'claude-sonnet-4-5', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
+    {
+        name: 'Wingman Claude Haiku',
+        models: [
+            { id: 'claude-haiku-4-5', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
+        ],
+    },
 
-export const candidates: Array<{ name: string; models: string[] }> = [
-    // OpenAI models
-    { name: 'Wingman Codex', models: ['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1', 'gpt-5-codex', 'gpt-5'] },
-    { name: 'Wingman Codex Mini', models: ['gpt-5.1-codex-mini', 'gpt-5-mini'] },
-
-    // Gemini models
-    { name: 'Wingman Gemini Pro', models: ['gemini-3-pro', 'gemini-3-pro-preview', 'gemini-2.5-pro'] },
-    { name: 'Wingman Gemini Flash', models: ['gemini-3-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'] },
-
-    // Claude models
-    { name: 'Wingman Claude Opus', models: [ 'claude-opus-4-6', 'claude-opus-4-5'] },
-    { name: 'Wingman Claude Sonnet', models: ['claude-sonnet-4-5'] },
-    { name: 'Wingman Claude Haiku', models: ['claude-haiku-4-5'] },
+    // GLM models
+    {
+        name: 'Wingman GLM',
+        models: [
+            { id: 'glm-5',   limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+            { id: 'glm-4.7', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+        ],
+    },
+    {
+        name: 'Wingman GLM Flash',
+        models: [
+            { id: 'glm-4.7-flash', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+        ],
+    },
 ];
