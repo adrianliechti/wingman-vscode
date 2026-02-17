@@ -80,12 +80,14 @@ export const candidates: ModelCandidate[] = [
     {
         name: 'Wingman Claude Sonnet',
         models: [
+            { id: 'claude-sonnet-4-6', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'claude-sonnet-4-5', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
     },
     {
         name: 'Wingman Claude Haiku',
         models: [
+            { id: 'claude-haiku-4-6', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'claude-haiku-4-5', limits: { maxInputTokens: 127805, maxOutputTokens: 32000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
     },
@@ -102,6 +104,23 @@ export const candidates: ModelCandidate[] = [
         name: 'Wingman GLM Flash',
         models: [
             { id: 'glm-4.7-flash', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+        ],
+    },
+
+    // Qwen models
+    {
+        name: 'Wingman Qwen',
+        models: [
+            { id: 'qwen3.5',    limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+            { id: 'qwen3-next', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+            { id: 'qwen3',      limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+        ],
+    },
+    {
+        name: 'Wingman Qwen Coder',
+        models: [
+            { id: 'qwen3-coder-next', limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
+            { id: 'qwen3-coder',      limits: { maxInputTokens: 127805, maxOutputTokens: 128000 }, capabilities: { toolCalling: true } },
         ],
     },
 ];
