@@ -19,17 +19,21 @@ The extension auto-discovers models from your backend. The following model famil
 
 | Chat Model | Model IDs |
 |---|---|
-| Wingman GPT | `gpt-5.2`, `gpt-5.1`, `gpt-5` |
-| Wingman GPT Mini | `gpt-5-mini` |
+| Wingman ChatGPT | `gpt-5.2`, `gpt-5.1`, `gpt-5` |
+| Wingman ChatGPT Mini | `gpt-5-mini` |
 | Wingman Codex | `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5-codex` |
-| Wingman Codex Mini | `gpt-5.1-codex-mini` |
+| Wingman Codex Mini | `gpt-5.3-codex-spark`, `gpt-5.1-codex-mini` |
 | Wingman Gemini Pro | `gemini-3-pro`, `gemini-3-pro-preview`, `gemini-2.5-pro` |
 | Wingman Gemini Flash | `gemini-3-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash` |
 | Wingman Claude Opus | `claude-opus-4-6`, `claude-opus-4-5` |
-| Wingman Claude Sonnet | `claude-sonnet-4-5` |
-| Wingman Claude Haiku | `claude-haiku-4-5` |
+| Wingman Claude Sonnet | `claude-sonnet-4-6`, `claude-sonnet-4-5` |
+| Wingman Claude Haiku | `claude-haiku-4-6`, `claude-haiku-4-5` |
+| Wingman Devstral | `devstral`, `devstral-medium`, `devstral-medium-latest` |
+| Wingman Devstral Small | `devstral-small`, `devstral-small-latest` |
 | Wingman GLM | `glm-5`, `glm-4.7` |
 | Wingman GLM Flash | `glm-4.7-flash` |
+| Wingman Qwen | `qwen3.5`, `qwen3-next`, `qwen3` |
+| Wingman Qwen Coder | `qwen3-coder-next`, `qwen3-coder` |
 
 The extension picks the first available model from each group based on what your backend reports.
 
