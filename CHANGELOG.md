@@ -4,8 +4,9 @@ All notable changes to the "wingman" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.0.13] - 2026-02-17
+## [0.0.13] - 2026-02-19
 
+- Add `gemini-3.1-pro-preview` model support
 - Add `claude-sonnet-4-6` model to Wingman Claude Sonnet group
 - Add `claude-haiku-4-6` model to Wingman Claude Haiku group
 - Add Qwen models: `qwen3.5`, `qwen3-next`, `qwen3`

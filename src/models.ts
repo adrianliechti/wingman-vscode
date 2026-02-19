@@ -56,15 +56,14 @@ export const candidates: ModelCandidate[] = [
     {
         name: 'Wingman Gemini Pro',
         models: [
-            { id: 'gemini-3-pro',         limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
-            { id: 'gemini-3-pro-preview', limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
-            { id: 'gemini-2.5-pro',       limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-3.1-pro-preview', limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-3-pro-preview',   limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
+            { id: 'gemini-2.5-pro',         limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
     },
     {
         name: 'Wingman Gemini Flash',
         models: [
-            { id: 'gemini-3-flash',         limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gemini-3-flash-preview', limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gemini-2.5-flash',       limits: { maxInputTokens: 200000, maxOutputTokens: 64000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],

@@ -23,8 +23,8 @@ The extension auto-discovers models from your backend. The following model famil
 | Wingman ChatGPT Mini | `gpt-5-mini` |
 | Wingman Codex | `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex`, `gpt-5-codex` |
 | Wingman Codex Mini | `gpt-5.3-codex-spark`, `gpt-5.1-codex-mini` |
-| Wingman Gemini Pro | `gemini-3-pro`, `gemini-3-pro-preview`, `gemini-2.5-pro` |
-| Wingman Gemini Flash | `gemini-3-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash` |
+| Wingman Gemini Pro | `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro` |
+| Wingman Gemini Flash | `gemini-3-flash-preview`, `gemini-2.5-flash` |
 | Wingman Claude Opus | `claude-opus-4-6`, `claude-opus-4-5` |
 | Wingman Claude Sonnet | `claude-sonnet-4-6`, `claude-sonnet-4-5` |
 | Wingman Claude Haiku | `claude-haiku-4-6`, `claude-haiku-4-5` |
