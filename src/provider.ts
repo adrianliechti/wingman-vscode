@@ -195,6 +195,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             ...(tools.length > 0 && {
                 tools: tools,
                 tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
+                parallel_tool_calls: true,
             }),
 
             messages: input,
