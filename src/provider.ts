@@ -49,7 +49,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 id: match.id,
                 name: candidate.name,
                 
-                family: match.id,
+                family: candidate.name.toLowerCase().replace(/ /g, '-'),
                 version: "",
                 
                 maxInputTokens: match.limits.maxInputTokens,
