@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import OpenAI from 'openai';
 
 import { ModelInfo, candidates } from "./models";
-import { ResponseInputItem, FunctionTool } from "openai/resources/responses/responses";
+import { ResponseInputItem, FunctionTool, ResponseOutputItem, ResponseOutputMessage } from "openai/resources/responses/responses";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -47,13 +47,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             }
 
             return [{
-                id: match.id,
+                id: "wingman/" + match.id,
                 name: candidate.name,
 
                 family: candidate.name.toLowerCase().replace(/ /g, '-'),
                 version: "",
 
-                maxInputTokens: match.limits.maxInputTokens,
+                maxInputTokens: match.limits.maxInputTokens- match.limits.maxOutputTokens,
                 maxOutputTokens: match.limits.maxOutputTokens,
 
                 capabilities: {
@@ -187,8 +187,14 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             }
         }
 
+        let modelId = model.id;
+        
+        if (modelId.startsWith("wingman/")) {
+            modelId = modelId.replace("wingman/", "");
+        }
+
         const stream = client.responses.stream({
-            model: model.id,
+            model: modelId,
 
             ...(instructions && { instructions }),
 
@@ -201,7 +207,17 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             input: input,
         });
 
+        let globalStreamedText = '';
+        const streamedTextByItem = new Map<string, string>();
+
         stream.on('response.output_text.delta', (event) => {
+            const itemId = this.getEventItemId(event);
+            if (itemId) {
+                const prev = streamedTextByItem.get(itemId) ?? '';
+                streamedTextByItem.set(itemId, prev + event.delta);
+            }
+
+            globalStreamedText += event.delta;
             progress.report(new vscode.LanguageModelTextPart(event.delta));
         });
 
@@ -213,6 +229,16 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             const response = await stream.finalResponse();
 
             for (const item of response.output) {
+                const finalText = this.collectOutputItemText(item);
+
+                if (this.isValidText(finalText)) {
+                    const streamedForItem = this.getStreamedTextForOutputItem(item, streamedTextByItem, globalStreamedText);
+                    const missingText = this.getUnreportedText(streamedForItem, finalText);
+                    if (missingText) {
+                        progress.report(new vscode.LanguageModelTextPart(missingText));
+                    }
+                }
+
                 if (item.type === "function_call") {
                     let parsedArgs = {};
                     try {
@@ -289,5 +315,63 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             if (typeof c === "string") { return c; }
             try { return JSON.stringify(c); } catch { return ""; }
         }).join("");
+    }
+
+    private collectOutputItemText(item: ResponseOutputItem): string {
+        if (item.type !== 'message') {
+            return '';
+        }
+
+        return this.collectOutputMessageText(item);
+    }
+
+    private collectOutputMessageText(message: ResponseOutputMessage): string {
+        return message.content.map(part => {
+            if (part.type === 'output_text') {
+                return part.text;
+            }
+
+            return '';
+        }).join('');
+    }
+
+    private getEventItemId(event: unknown): string | undefined {
+        if (!event || typeof event !== 'object') {
+            return undefined;
+        }
+
+        const maybeItemId = (event as { item_id?: unknown }).item_id;
+        return typeof maybeItemId === 'string' && maybeItemId.trim().length > 0 ? maybeItemId : undefined;
+    }
+
+    private getOutputItemId(item: ResponseOutputItem): string | undefined {
+        const maybeId = (item as { id?: unknown }).id;
+        return typeof maybeId === 'string' && maybeId.trim().length > 0 ? maybeId : undefined;
+    }
+
+    private getStreamedTextForOutputItem(item: ResponseOutputItem, streamedTextByItem: Map<string, string>, globalStreamedText: string): string {
+        const itemId = this.getOutputItemId(item);
+        if (itemId) {
+            return streamedTextByItem.get(itemId) ?? '';
+        }
+
+        return globalStreamedText;
+    }
+
+    private getUnreportedText(streamedText: string, finalText: string): string {
+        if (!streamedText) {
+            return finalText;
+        }
+
+        if (finalText === streamedText) {
+            return '';
+        }
+
+        if (finalText.startsWith(streamedText)) {
+            return finalText.slice(streamedText.length);
+        }
+
+        this.logger.warn('Skipping final text replay due to non-prefix streamed/final mismatch');
+        return '';
     }
 }

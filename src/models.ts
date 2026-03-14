@@ -23,6 +23,7 @@ export const candidates: ModelCandidate[] = [
     {
         name: 'Wingman ChatGPT',
         models: [
+            { id: 'gpt-5.4', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gpt-5.2', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gpt-5.1', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gpt-5',   limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },

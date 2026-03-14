@@ -6,15 +6,9 @@ Reference: [Keep a Changelog](http://keepachangelog.com/)
 
 ## [0.1.0] - 2026-03-14
 
-- Migrated from Chat Completions to the OpenAI Responses API in `src/provider.ts`.
-- Updated tool-calling and streaming flow for Responses API compatibility.
-- Bumped version to `0.1.0` and refreshed dependencies/tooling (including `openai` and VS Code `^1.110.0`).
-
-## [0.0.14] - 2026-03-11
-
-- Added `parallel_tool_calls: true` to responses when tools are enabled.
-- Updated model family naming to use each model ID (instead of normalized candidate names).
-- Bumped package version metadata.
+- Migrated to OpenAI Responses API
+- Adjusted token calculation to align with the latest VS Code behavior.
+- Added `gpt-5.4` support.
 
 ## [0.0.13] - 2026-02-19
 
