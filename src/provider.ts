@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 
 import OpenAI from 'openai';
-import { ChatCompletionContentPart, ChatCompletionContentPartText, ChatCompletionMessageParam, ChatCompletionMessageToolCall, ChatCompletionTool } from "openai/resources/chat/completions";
+
 import { ModelInfo, candidates } from "./models";
+import { ResponseInputItem, FunctionTool } from "openai/resources/responses/responses";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -40,7 +41,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const results = candidates.flatMap(candidate => {
             const match = candidate.models.find(m => models.has(m.id));
-            
+
             if (!match) {
                 return [];
             }
@@ -48,10 +49,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             return [{
                 id: match.id,
                 name: candidate.name,
-                
+
                 family: candidate.name.toLowerCase().replace(/ /g, '-'),
                 version: "",
-                
+
                 maxInputTokens: match.limits.maxInputTokens,
                 maxOutputTokens: match.limits.maxOutputTokens,
 
@@ -83,15 +84,15 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const client = await this.createClient();
 
-        const input: ChatCompletionMessageParam[] = [];
+        const input: ResponseInputItem[] = [];
+        let instructions: string | undefined;
 
-        const tools: ChatCompletionTool[] = options.tools?.map(tool => ({
-            type: "function",
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.inputSchema as any
-            }
+        const tools: FunctionTool[] = options.tools?.map(tool => ({
+            type: "function" as const,
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema as any,
+            strict: false,
         })) ?? [];
 
         for (const message of messages) {
@@ -104,93 +105,92 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     .join("");
 
                 if (textContent.trim()) {
-                    input.push({
-                        role: "system",
-                        content: textContent
-                    });
+                    if (!instructions) {
+                        instructions = textContent;
+                    } else {
+                        input.push({
+                            role: "developer",
+                            content: [{ type: "input_text", text: textContent }],
+                        });
+                    }
                 }
                 continue;
             }
 
             if (message.role === vscode.LanguageModelChatMessageRole.User) {
-                const contentParts: Array<ChatCompletionContentPart> = [];
+                for (const part of message.content) {
+                    if (this.isToolResultPart(part)) {
+                        const toolResultContent = this.collectToolResultText(part);
+                        if (toolResultContent.trim()) {
+                            input.push({
+                                type: "function_call_output",
+                                call_id: part.callId,
+                                output: toolResultContent,
+                            });
+                        }
+                    }
+                }
+
+                const contentParts: Array<{ type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail: "auto" }> = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
                             contentParts.push({
-                                type: "text",
-                                text: part.value
+                                type: "input_text",
+                                text: part.value,
                             });
                         }
                     } else if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
                         const base64Data = Buffer.from(part.data).toString('base64');
                         contentParts.push({
-                            type: "image_url",
-                            image_url: {
-                                url: `data:${part.mimeType};base64,${base64Data}`
-                            }
+                            type: "input_image",
+                            image_url: `data:${part.mimeType};base64,${base64Data}`,
+                            detail: "auto",
                         });
-                    } else if (this.isToolResultPart(part)) {
-                        const toolResultContent = this.collectToolResultText(part);
-                        if (toolResultContent.trim()) {
-                            input.push({
-                                role: "tool",
-                                tool_call_id: part.callId,
-                                content: toolResultContent
-                            });
-                        }
                     }
                 }
 
                 if (contentParts.length > 0) {
                     input.push({
                         role: "user",
-                        content: contentParts
+                        content: contentParts,
                     });
                 }
             } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-                const textParts: Array<ChatCompletionContentPartText> = [];
-                const toolCalls: Array<ChatCompletionMessageToolCall> = [];
+                const textValues: string[] = [];
+                const toolCalls: ResponseInputItem[] = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
-                            textParts.push({
-                                type: "text",
-                                text: part.value
-                            });
+                            textValues.push(part.value);
                         }
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
                         toolCalls.push({
-                            type: "function",
-                            id: part.callId,
-                            function: {
-                                name: part.name,
-                                arguments: JSON.stringify(part.input)
-                            }
+                            type: "function_call",
+                            call_id: part.callId,
+                            name: part.name,
+                            arguments: JSON.stringify(part.input),
                         });
                     }
                 }
 
-                // Combine text and tool_calls into a single assistant message to avoid consecutive assistant messages
-                if (textParts.length > 0 || toolCalls.length > 0) {
-                    const assistantMessage: ChatCompletionMessageParam = {
+                if (textValues.length > 0) {
+                    input.push({
                         role: "assistant",
-                        content: textParts.length > 0 ? textParts : null,
-                    };
-
-                    if (toolCalls.length > 0) {
-                        (assistantMessage as any).tool_calls = toolCalls;
-                    }
-
-                    input.push(assistantMessage);
+                        content: textValues.join(""),
+                    });
                 }
+
+                input.push(...toolCalls);
             }
         }
 
-        const runner = client.chat.completions.stream({
+        const stream = client.responses.stream({
             model: model.id,
+
+            ...(instructions && { instructions }),
 
             ...(tools.length > 0 && {
                 tools: tools,
@@ -198,44 +198,40 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 parallel_tool_calls: true,
             }),
 
-            messages: input,
-        }).on('content', (diff) => {
-            progress.report(new vscode.LanguageModelTextPart(diff));
+            input: input,
+        });
+
+        stream.on('response.output_text.delta', (event) => {
+            progress.report(new vscode.LanguageModelTextPart(event.delta));
         });
 
         const cancellationListener = token.onCancellationRequested(() => {
-            runner.abort();
+            stream.abort();
         });
 
         try {
-            const completion = await runner.finalChatCompletion();
-            const result = completion.choices[0]?.message;
+            const response = await stream.finalResponse();
 
-            if (!result) {
-                return;
-            }
-
-            result.tool_calls?.forEach(toolCall => {
-                if (toolCall.type === "function" && toolCall.id && toolCall.function) {
+            for (const item of response.output) {
+                if (item.type === "function_call") {
                     let parsedArgs = {};
                     try {
-                        parsedArgs = JSON.parse(toolCall.function.arguments || '{}');
+                        parsedArgs = JSON.parse(item.arguments || '{}');
                     } catch (parseError) {
-                        this.logger.error('Failed to parse tool arguments:', toolCall.function.arguments || '');
+                        this.logger.error('Failed to parse tool arguments:', item.arguments || '');
                     }
                     progress.report(new vscode.LanguageModelToolCallPart(
-                        toolCall.id,
-                        toolCall.function.name || '',
+                        item.call_id,
+                        item.name || '',
                         parsedArgs
                     ));
                 }
-            });
+            }
         } catch (error) {
             if (token.isCancellationRequested) {
-                // Cancellation is expected, don't throw
                 return;
             }
-            this.logger.error('Chat completion failed:', String(error));
+            this.logger.error('Response failed:', String(error));
             throw error;
         } finally {
             cancellationListener.dispose();
