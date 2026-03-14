@@ -4,6 +4,12 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.1.0] - 2026-03-14
+
+- Migrated to OpenAI Responses API
+- Adjusted token calculation to align with the latest VS Code behavior.
+- Added `gpt-5.4` support.
+
 ## [0.0.13] - 2026-02-19
 
 - Added `gemini-3.1-pro-preview` support.
