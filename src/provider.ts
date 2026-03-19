@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
+import { createHash } from "crypto";
 
 import OpenAI from 'openai';
 
 import { ModelInfo, candidates } from "./models";
-import { ResponseInputItem, FunctionTool, ResponseOutputItem, ResponseOutputMessage } from "openai/resources/responses/responses";
+import { ResponseInputItem, FunctionTool, ResponseOutputItem, ResponseOutputMessage, ResponseReasoningItem } from "openai/resources/responses/responses";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -12,6 +13,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
     private baseUrl?: string;
 
     private readonly logger: vscode.LogOutputChannel;
+    private readonly reasoningCache = new Map<string, ResponseReasoningItem[]>();
 
     constructor(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel) {
         this.logger = logger;
@@ -120,14 +122,11 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             if (message.role === vscode.LanguageModelChatMessageRole.User) {
                 for (const part of message.content) {
                     if (this.isToolResultPart(part)) {
-                        const toolResultContent = this.collectToolResultText(part);
-                        if (toolResultContent.trim()) {
-                            input.push({
-                                type: "function_call_output",
-                                call_id: part.callId,
-                                output: toolResultContent,
-                            });
-                        }
+                        input.push({
+                            type: "function_call_output",
+                            call_id: part.callId,
+                            output: this.collectToolResultText(part),
+                        });
                     }
                 }
 
@@ -158,15 +157,19 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     });
                 }
             } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-                const textValues: string[] = [];
+                const hash = createHash('sha256');
+                let text = '';
                 const toolCalls: ResponseInputItem[] = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
-                            textValues.push(part.value);
+                            text += part.value;
+                            hash.update(part.value);
                         }
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                        hash.update('\0');
+                        hash.update(part.callId);
                         toolCalls.push({
                             type: "function_call",
                             call_id: part.callId,
@@ -176,10 +179,17 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     }
                 }
 
-                if (textValues.length > 0) {
+                // Inject cached reasoning items before the assistant message
+                const fingerprint = hash.digest('hex');
+                const cachedReasoning = this.reasoningCache.get(fingerprint);
+                if (cachedReasoning) {
+                    input.push(...cachedReasoning);
+                }
+
+                if (text) {
                     input.push({
                         role: "assistant",
-                        content: textValues.join(""),
+                        content: text,
                     });
                 }
 
@@ -187,14 +197,14 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             }
         }
 
-        let modelId = model.id;
-        
-        if (modelId.startsWith("wingman/")) {
-            modelId = modelId.replace("wingman/", "");
-        }
+        const modelId = model.id.startsWith("wingman/")
+            ? model.id.slice("wingman/".length)
+            : model.id;
 
         const stream = client.responses.stream({
             model: modelId,
+
+            include: ['reasoning.encrypted_content'],
 
             ...(instructions && { instructions }),
 
@@ -211,7 +221,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         const streamedTextByItem = new Map<string, string>();
 
         stream.on('response.output_text.delta', (event) => {
-            const itemId = this.getEventItemId(event);
+            const itemId = this.getStringProp(event, 'item_id');
             if (itemId) {
                 const prev = streamedTextByItem.get(itemId) ?? '';
                 streamedTextByItem.set(itemId, prev + event.delta);
@@ -228,14 +238,20 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         try {
             const response = await stream.finalResponse();
 
-            for (const item of response.output) {
-                const finalText = this.collectOutputItemText(item);
+            // Cache reasoning items for future conversation turns
+            this.cacheReasoningItems(response.output);
 
-                if (this.isValidText(finalText)) {
-                    const streamedForItem = this.getStreamedTextForOutputItem(item, streamedTextByItem, globalStreamedText);
-                    const missingText = this.getUnreportedText(streamedForItem, finalText);
-                    if (missingText) {
-                        progress.report(new vscode.LanguageModelTextPart(missingText));
+            for (const item of response.output) {
+                if (item.type === 'message') {
+                    const finalText = this.collectOutputMessageText(item);
+
+                    if (this.isValidText(finalText)) {
+                        const itemId = this.getStringProp(item, 'id');
+                        const streamedText = (itemId && streamedTextByItem.get(itemId)) || globalStreamedText;
+                        const missingText = this.getUnreportedText(streamedText, finalText);
+                        if (missingText) {
+                            progress.report(new vscode.LanguageModelTextPart(missingText));
+                        }
                     }
                 }
 
@@ -317,14 +333,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         }).join("");
     }
 
-    private collectOutputItemText(item: ResponseOutputItem): string {
-        if (item.type !== 'message') {
-            return '';
-        }
-
-        return this.collectOutputMessageText(item);
-    }
-
     private collectOutputMessageText(message: ResponseOutputMessage): string {
         return message.content.map(part => {
             if (part.type === 'output_text') {
@@ -335,27 +343,45 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         }).join('');
     }
 
-    private getEventItemId(event: unknown): string | undefined {
-        if (!event || typeof event !== 'object') {
+    private getStringProp(obj: unknown, key: string): string | undefined {
+        if (!obj || typeof obj !== 'object') {
             return undefined;
         }
 
-        const maybeItemId = (event as { item_id?: unknown }).item_id;
-        return typeof maybeItemId === 'string' && maybeItemId.trim().length > 0 ? maybeItemId : undefined;
+        const value = (obj as Record<string, unknown>)[key];
+        return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
     }
 
-    private getOutputItemId(item: ResponseOutputItem): string | undefined {
-        const maybeId = (item as { id?: unknown }).id;
-        return typeof maybeId === 'string' && maybeId.trim().length > 0 ? maybeId : undefined;
-    }
+    private cacheReasoningItems(output: ResponseOutputItem[]): void {
+        const reasoningItems = output.filter(
+            (item): item is ResponseReasoningItem => item.type === 'reasoning'
+        );
 
-    private getStreamedTextForOutputItem(item: ResponseOutputItem, streamedTextByItem: Map<string, string>, globalStreamedText: string): string {
-        const itemId = this.getOutputItemId(item);
-        if (itemId) {
-            return streamedTextByItem.get(itemId) ?? '';
+        if (reasoningItems.length === 0) {
+            return;
         }
 
-        return globalStreamedText;
+        const hash = createHash('sha256');
+
+        for (const item of output) {
+            if (item.type === 'message') {
+                hash.update(this.collectOutputMessageText(item));
+            } else if (item.type === 'function_call') {
+                hash.update('\0');
+                hash.update(item.call_id);
+            }
+        }
+
+        const fingerprint = hash.digest('hex');
+
+        // Cap cache to prevent unbounded growth
+        if (this.reasoningCache.size >= 100) {
+            const oldest = this.reasoningCache.keys().next().value!;
+            this.reasoningCache.delete(oldest);
+        }
+
+        this.reasoningCache.set(fingerprint, reasoningItems);
+        this.logger.info('Cached', reasoningItems.length, 'reasoning item(s) for fingerprint', fingerprint.substring(0, 8));
     }
 
     private getUnreportedText(streamedText: string, finalText: string): string {

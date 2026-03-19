@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.1.1] - 2026-03-19
+
+- Added reasoning support for Responses API
+- Adjusted advertised `maxInputTokens` to reserve room for `maxOutputTokens`.
+
 ## [0.1.0] - 2026-03-14
 
 - Migrated to OpenAI Responses API
