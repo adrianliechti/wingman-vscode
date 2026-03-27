@@ -157,19 +157,17 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     });
                 }
             } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-                const hash = createHash('sha256');
                 let text = '';
+                const callIds: string[] = [];
                 const toolCalls: ResponseInputItem[] = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
                             text += part.value;
-                            hash.update(part.value);
                         }
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                        hash.update('\0');
-                        hash.update(part.callId);
+                        callIds.push(part.callId);
                         toolCalls.push({
                             type: "function_call",
                             call_id: part.callId,
@@ -180,8 +178,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 }
 
                 // Inject cached reasoning items before the assistant message
-                const fingerprint = hash.digest('hex');
-                const cachedReasoning = this.reasoningCache.get(fingerprint);
+                const cachedReasoning = this.reasoningCache.get(this.computeFingerprint(text, callIds));
                 if (cachedReasoning) {
                     input.push(...cachedReasoning);
                 }
@@ -352,6 +349,16 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
     }
 
+    private computeFingerprint(text: string, callIds: string[]): string {
+        const hash = createHash('sha256');
+        hash.update(text);
+        for (const id of callIds) {
+            hash.update('\0');
+            hash.update(id);
+        }
+        return hash.digest('hex');
+    }
+
     private cacheReasoningItems(output: ResponseOutputItem[]): void {
         const reasoningItems = output.filter(
             (item): item is ResponseReasoningItem => item.type === 'reasoning'
@@ -361,18 +368,21 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             return;
         }
 
-        const hash = createHash('sha256');
+        let text = '';
+        const callIds: string[] = [];
 
         for (const item of output) {
             if (item.type === 'message') {
-                hash.update(this.collectOutputMessageText(item));
+                const msgText = this.collectOutputMessageText(item);
+                if (this.isValidText(msgText)) {
+                    text += msgText;
+                }
             } else if (item.type === 'function_call') {
-                hash.update('\0');
-                hash.update(item.call_id);
+                callIds.push(item.call_id);
             }
         }
 
-        const fingerprint = hash.digest('hex');
+        const fingerprint = this.computeFingerprint(text, callIds);
 
         // Cap cache to prevent unbounded growth
         if (this.reasoningCache.size >= 100) {
