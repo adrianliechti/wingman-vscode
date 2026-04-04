@@ -9,9 +9,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	try {
 		const port = await server.start();
-		logger.info(`IDE bridge started on port ${port}`);
+		logger.info(`Bridge started on port ${port}`);
 	} catch (err) {
-		logger.error('Failed to start IDE bridge:', String(err));
+		logger.error('Failed to start Bridge:', String(err));
 	}
 
 	context.subscriptions.push(
