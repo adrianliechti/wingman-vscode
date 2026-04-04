@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -18,7 +18,8 @@
     "Chat"
   ],
   "activationEvents": [
-    "onLanguageModelChat:wingman"
+    "onLanguageModelChat:wingman",
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
