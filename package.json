@@ -23,6 +23,41 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "wingman.openAgent",
+        "title": "Open Agent",
+        "category": "Wingman",
+        "icon": "$(rocket)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "wingman.openAgent",
+          "when": "wingman.agentAvailable"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wingman",
+          "title": "Wingman",
+          "icon": "$(rocket)"
+        }
+      ]
+    },
+    "views": {
+      "wingman": [
+        {
+          "id": "wingman.agent",
+          "name": "Agent",
+          "type": "webview",
+          "when": "wingman.agentAvailable"
+        }
+      ]
+    },
     "configuration": {
       "title": "Wingman",
       "properties": {
