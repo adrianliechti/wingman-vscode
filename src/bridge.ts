@@ -143,15 +143,21 @@ export class Bridge implements vscode.Disposable {
             name: 'wingman-vscode',
             version: '0.1.0',
         }, {
-            instructions: 'You are connected to VS Code.',
+            instructions: [
+                'You are connected to a VS Code instance via MCP.',
+                'Use these tools to interact with the IDE: navigate files, inspect code, and leverage language intelligence.',
+                'After editing files externally, call notify_file_updated so the IDE re-analyzes them.',
+                'Use get_lsp_diagnostics to check for errors after changes.',
+                'Prefer LSP tools (find_lsp_*, get_lsp_*) over text-based search when you need semantic understanding of code.',
+            ].join(' '),
         });
 
         // --- Tools ---
 
         mcp.registerTool(
-            'get_diagnostics',
+            'get_lsp_diagnostics',
             {
-                description: 'Get LSP diagnostics (errors, warnings) from the IDE for a file or the entire workspace.',
+                description: 'Get LSP diagnostics (errors, warnings, hints) for a file or the entire workspace. Use after editing files to verify correctness.',
                 inputSchema: { path: z.string().optional().describe('Absolute file path. Omit for all diagnostics.') },
             },
             async ({ path }) => {
@@ -175,15 +181,33 @@ export class Bridge implements vscode.Disposable {
         mcp.registerTool(
             'open_file',
             {
-                description: 'Open a file in the IDE at an optional line and column position.',
+                description: 'Open a file in the IDE editor. Supports navigating to a line/column, viewing a file at a git ref, or showing a diff against a git ref.',
                 inputSchema: {
                     path: z.string().describe('Absolute path to the file to open'),
                     line: z.number().optional().describe('Line number to navigate to (0-based)'),
                     column: z.number().optional().describe('Column number to navigate to (0-based)'),
+                    view: z.enum(['diff']).optional().describe('View mode. "diff" shows changes against git HEAD (or the ref if specified).'),
+                    ref: z.string().optional().describe('Git ref to diff against (e.g. "HEAD~3", "main", a commit hash). Defaults to HEAD. Only used with view="diff".'),
                 },
             },
-            async ({ path, line, column }) => {
+            async ({ path, line, column, view, ref }) => {
                 const uri = vscode.Uri.file(path);
+
+                if (view === 'diff') {
+                    const gitRef = ref ?? '~';
+                    const gitUri = uri.with({ scheme: 'git', query: JSON.stringify({ path: path, ref: gitRef }) });
+                    const options: vscode.TextDocumentShowOptions = { preserveFocus: true, preview: false };
+                    await vscode.commands.executeCommand('vscode.diff', gitUri, uri, `${path.split('/').pop()} (Working Tree)`, options);
+                    return textResult(`Opened diff for ${path}`);
+                }
+
+                if (ref) {
+                    const gitUri = uri.with({ scheme: 'git', query: JSON.stringify({ path: path, ref }) });
+                    const doc = await vscode.workspace.openTextDocument(gitUri);
+                    await vscode.window.showTextDocument(doc, { preview: false });
+                    return textResult(`Opened ${path} at ref ${ref}`);
+                }
+
                 const doc = await vscode.workspace.openTextDocument(uri);
 
                 const options: vscode.TextDocumentShowOptions = {};
@@ -200,7 +224,7 @@ export class Bridge implements vscode.Disposable {
         mcp.registerTool(
             'notify_file_updated',
             {
-                description: 'Notify the IDE that a file was changed externally so language services re-analyze it.',
+                description: 'Notify the IDE that a file was changed externally so LSP language services re-analyze it. Call this after writing or modifying files outside the editor.',
                 inputSchema: {
                     path: z.string().describe('Absolute path to the updated file'),
                 },
@@ -217,28 +241,52 @@ export class Bridge implements vscode.Disposable {
         );
 
         mcp.registerTool(
-            'get_document_symbols',
+            'find_lsp_symbols',
             {
-                description: 'Get the symbol outline (functions, classes, variables, etc.) of a file. Much faster than reading the entire file for understanding structure.',
-                inputSchema: { path: z.string().describe('Absolute path to the file') },
+                description: 'Find LSP symbols. With a path: returns the symbol outline (functions, classes, variables) of that file. Without a path: searches symbols across the entire workspace by query. Faster and more accurate than text-based grep for understanding code structure.',
+                inputSchema: {
+                    path: z.string().optional().describe('Absolute path to a file. If provided, returns symbols in that file.'),
+                    query: z.string().optional().describe('Search query for workspace-wide symbol search. Used when path is omitted.'),
+                },
             },
-            async ({ path }) => {
-                const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-                    'vscode.executeDocumentSymbolProvider', vscode.Uri.file(path)
+            async ({ path, query }) => {
+                if (path) {
+                    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                        'vscode.executeDocumentSymbolProvider', vscode.Uri.file(path)
+                    );
+
+                    if (!symbols || symbols.length === 0) {
+                        return textResult('No symbols found');
+                    }
+
+                    return textResult(JSON.stringify(flattenSymbols(symbols), null, 2));
+                }
+
+                const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+                    'vscode.executeWorkspaceSymbolProvider', query ?? ''
                 );
 
                 if (!symbols || symbols.length === 0) {
                     return textResult('No symbols found');
                 }
 
-                return textResult(JSON.stringify(flattenSymbols(symbols), null, 2));
+                const result = symbols.map(s => ({
+                    name: s.name,
+                    kind: vscode.SymbolKind[s.kind],
+                    path: s.location.uri.fsPath,
+                    line: s.location.range.start.line,
+                    character: s.location.range.start.character,
+                    container: s.containerName || undefined,
+                }));
+
+                return textResult(JSON.stringify(result, null, 2));
             }
         );
 
         mcp.registerTool(
-            'find_references',
+            'find_lsp_references',
             {
-                description: 'Find all references to a symbol at a given position across the workspace.',
+                description: 'Find all LSP references to a symbol at a given position across the workspace. Use to understand usage patterns before renaming or refactoring.',
                 inputSchema: positionSchema,
             },
             async ({ path, line, column }) => {
@@ -257,9 +305,9 @@ export class Bridge implements vscode.Disposable {
         );
 
         mcp.registerTool(
-            'go_to_definition',
+            'find_lsp_definition',
             {
-                description: 'Find the definition of a symbol at a given position.',
+                description: 'Find the LSP definition of a symbol at a given position. Use to navigate to where a function, type, or variable is declared.',
                 inputSchema: positionSchema,
             },
             async ({ path, line, column }) => {
@@ -278,9 +326,9 @@ export class Bridge implements vscode.Disposable {
         );
 
         mcp.registerTool(
-            'go_to_implementation',
+            'find_lsp_implementation',
             {
-                description: 'Find implementations of an interface or abstract method at a given position.',
+                description: 'Find LSP implementations of an interface or abstract method at a given position. Use to discover concrete types that implement an interface.',
                 inputSchema: positionSchema,
             },
             async ({ path, line, column }) => {
@@ -299,30 +347,9 @@ export class Bridge implements vscode.Disposable {
         );
 
         mcp.registerTool(
-            'go_to_type_definition',
+            'get_lsp_hover',
             {
-                description: 'Find the type definition of a symbol at a given position.',
-                inputSchema: positionSchema,
-            },
-            async ({ path, line, column }) => {
-                const locations = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
-                    'vscode.executeTypeDefinitionProvider',
-                    vscode.Uri.file(path),
-                    new vscode.Position(line, column),
-                );
-
-                if (!locations || locations.length === 0) {
-                    return textResult('No type definition found');
-                }
-
-                return textResult(JSON.stringify(locations.map(serializeLocation), null, 2));
-            }
-        );
-
-        mcp.registerTool(
-            'get_hover',
-            {
-                description: 'Get hover information (type info, documentation) for a symbol at a given position.',
+                description: 'Get LSP hover information (type info, documentation) for a symbol at a given position. Use to inspect types, signatures, and docs without reading the full source.',
                 inputSchema: positionSchema,
             },
             async ({ path, line, column }) => {
@@ -345,9 +372,9 @@ export class Bridge implements vscode.Disposable {
         );
 
         mcp.registerTool(
-            'get_call_hierarchy',
+            'find_lsp_hierarchy',
             {
-                description: 'Get incoming and outgoing calls for a function/method at a given position.',
+                description: 'Find LSP call hierarchy for a function/method at a given position. Use to trace call chains — who calls this function (incoming) or what it calls (outgoing).',
                 inputSchema: {
                     ...positionSchema,
                     direction: z.enum(['incoming', 'outgoing']).describe('Direction of the call hierarchy'),

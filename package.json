@@ -26,7 +26,7 @@
     "commands": [
       {
         "command": "wingman.openAgent",
-        "title": "Open Agent",
+        "title": "Wingman Agent",
         "category": "Wingman",
         "icon": "$(rocket)"
       }
@@ -39,22 +39,12 @@
         }
       ]
     },
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "wingman",
-          "title": "Wingman",
-          "icon": "$(rocket)"
-        }
-      ]
-    },
-    "views": {
-      "wingman": [
+    "terminal": {
+      "profiles": [
         {
           "id": "wingman.agent",
-          "name": "Agent",
-          "type": "webview",
-          "when": "wingman.agentAvailable"
+          "title": "Wingman Agent",
+          "icon": "rocket"
         }
       ]
     },

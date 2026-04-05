@@ -20,10 +20,30 @@ export function getAgentPath(): string | undefined {
 	return agentPath;
 }
 
-export class AgentViewProvider implements vscode.WebviewViewProvider {
-	resolveWebviewView() {
-		openAgent();
+export const agentProfileProvider: vscode.TerminalProfileProvider = {
+	provideTerminalProfile() {
+		const agentPath = getAgentPath();
+
+		if (!agentPath) {
+			return undefined as unknown as vscode.TerminalProfile;
+		}
+
+		return new vscode.TerminalProfile({
+			name: 'Wingman Agent',
+			shellPath: agentPath,
+			iconPath: new vscode.ThemeIcon('rocket'),
+			env: { WINGMAN_CALLER: 'vscode' },
+		});
 	}
+};
+
+export function createStatusBarItem(): vscode.StatusBarItem {
+	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+	item.text = '$(rocket)';
+	item.tooltip = 'Open Wingman Agent';
+	item.command = 'wingman.openAgent';
+	item.show();
+	return item;
 }
 
 let agentTerminal: vscode.Terminal | undefined;
@@ -46,6 +66,7 @@ export function openAgent() {
 		shellPath: agentPath,
 		iconPath: new vscode.ThemeIcon('rocket'),
 		location: vscode.TerminalLocation.Panel,
+		env: { WINGMAN_CALLER: 'vscode' },
 	});
 
 	agentTerminal.show();
