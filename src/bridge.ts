@@ -1,88 +1,126 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import type { ServerType } from '@hono/node-server';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { serve } from '@hono/node-server';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import * as vscode from 'vscode';
 
 const lockfileDir = join(homedir(), '.wingman', 'bridge');
 
-function textResult(text: string) {
-    return { content: [{ type: 'text' as const, text }] };
-}
-
 const positionSchema = {
     path: z.string().describe('Absolute path to the file'),
-    line: z.number().describe('Line number (1-based)'),
-    column: z.number().describe('Column number (1-based)'),
+    line: z.number().describe('Line number (0-based)'),
+    column: z.number().describe('Column number (0-based)'),
 };
 
+// --- Session state ---
+
+interface Session {
+    transport: WebStandardStreamableHTTPServerTransport;
+    mcp: McpServer;
+}
+
 export class Bridge implements vscode.Disposable {
-    private server: Server | undefined;
-    private sessions = new Map<string, StreamableHTTPServerTransport>();
+    private server: ServerType | undefined;
+    private sessions = new Map<string, Session>();
     private lockfilePath: string | undefined;
+    private disposables: vscode.Disposable[] = [];
 
     constructor(private readonly logger: vscode.LogOutputChannel) { }
 
     async start(): Promise<number> {
         cleanStaleLockfiles();
 
+        const app = new Hono();
+
+        // --- MCP endpoint ---
+
+        app.all('/mcp', async (c) => {
+            try {
+                const sessionId = c.req.header('mcp-session-id');
+
+                if (sessionId) {
+                    const session = this.sessions.get(sessionId);
+                    if (!session) {
+                        return c.text('Session not found', 404);
+                    }
+                    return session.transport.handleRequest(c.req.raw);
+                }
+
+                // New client connecting — create a fresh transport + server.
+                const transport = new WebStandardStreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID(),
+                    onsessioninitialized: (id) => {
+                        this.sessions.set(id, { transport, mcp });
+                    },
+                });
+
+                transport.onclose = () => {
+                    if (transport.sessionId) {
+                        this.sessions.delete(transport.sessionId);
+                    }
+                };
+
+                const mcp = this.createMcpServer();
+
+                await mcp.connect(transport);
+                return transport.handleRequest(c.req.raw);
+            } catch (err) {
+                this.logger.error('MCP request error:', String(err));
+                return c.text(String(err), 500);
+            }
+        });
+
+        // --- Workspace state change notifications (via resource subscription) ---
+
+        const throttledStateNotify = throttle(
+            () => this.notifyWorkspaceStateChanged(),
+            100,
+        );
+
+        this.disposables.push(
+            vscode.window.onDidChangeTextEditorSelection((e) => {
+                if (e.selections[0]) {
+                    throttledStateNotify();
+                }
+            }),
+
+            vscode.window.onDidChangeActiveTextEditor(() => {
+                throttledStateNotify();
+            }),
+
+            vscode.workspace.onDidOpenTextDocument((doc) => {
+                if (doc.uri.scheme === 'file') {
+                    throttledStateNotify();
+                }
+            }),
+
+            vscode.workspace.onDidCloseTextDocument((doc) => {
+                if (doc.uri.scheme === 'file') {
+                    throttledStateNotify();
+                }
+            }),
+
+            vscode.window.tabGroups.onDidChangeTabs(() => {
+                throttledStateNotify();
+            }),
+        );
+
+        // --- Start server ---
+
         return new Promise((resolve, reject) => {
-            this.server = createServer(async (req, res) => {
-                try {
-                    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-
-                    if (sessionId) {
-                        // Existing session — route to its transport
-                        const transport = this.sessions.get(sessionId);
-                        if (transport) {
-                            await transport.handleRequest(req, res);
-                        } else {
-                            res.writeHead(404, { 'Content-Type': 'text/plain' });
-                            res.end('Session not found');
-                        }
-                        return;
-                    }
-
-                    // No session ID — new client connecting. Create a fresh transport + server.
-                    const transport = new StreamableHTTPServerTransport({
-                        sessionIdGenerator: () => randomUUID(),
-                        onsessioninitialized: (id) => {
-                            this.sessions.set(id, transport);
-                        },
-                    });
-
-                    transport.onclose = () => {
-                        if (transport.sessionId) {
-                            this.sessions.delete(transport.sessionId);
-                        }
-                    };
-
-                    const mcp = this.createMcpServer();
-                    await mcp.connect(transport);
-                    await transport.handleRequest(req, res);
-                } catch (err) {
-                    this.logger.error('MCP request error:', String(err));
-                    if (!res.headersSent) {
-                        res.writeHead(500);
-                        res.end(String(err));
-                    }
-                }
-            });
-
-            this.server.listen(0, '127.0.0.1', () => {
-                const addr = this.server!.address();
-
-                if (!addr || typeof addr === 'string') {
-                    reject(new Error('Failed to get server address'));
-                    return;
-                }
-
-                this.lockfilePath = writeLockfile(addr.port);
-                resolve(addr.port);
+            this.server = serve({
+                fetch: app.fetch,
+                port: 0,
+                hostname: '127.0.0.1',
+            }, (info) => {
+                this.lockfilePath = writeLockfile(info.port);
+                resolve(info.port);
             });
 
             this.server.on('error', (err) => {
@@ -92,6 +130,12 @@ export class Bridge implements vscode.Disposable {
         });
     }
 
+    private notifyWorkspaceStateChanged(): void {
+        for (const { mcp } of this.sessions.values()) {
+            mcp.server.sendResourceUpdated({ uri: 'wingman://workspace/state' }).catch(() => { });
+        }
+    }
+
     private createMcpServer(): McpServer {
         const workspaces = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
 
@@ -99,46 +143,44 @@ export class Bridge implements vscode.Disposable {
             name: 'wingman-vscode',
             version: '0.1.0',
         }, {
-            instructions: [
-                'You are connected to VS Code via the Wingman bridge.',
-                `Open workspaces: ${workspaces.join(', ') || 'none'}`,
-                'Use the available tools to interact with the IDE: open files, get diagnostics, read the user\'s selection, and notify file changes.',
-                'When you edit or write files, call notify_file_updated so the IDE language services re-analyze the changes.',
-                'Use get_selection to understand what code the user is currently looking at — this provides context for their questions.',
-            ].join('\n'),
+            instructions: 'You are connected to VS Code.',
         });
 
         // --- Tools ---
 
-        mcp.tool(
+        mcp.registerTool(
             'get_diagnostics',
-            'Get LSP diagnostics (errors, warnings) from the IDE for a file or the entire workspace.',
-            { uri: z.string().optional().describe('File URI (e.g. file:///path/to/file). Omit for all diagnostics.') },
-            async ({ uri }) => {
-                if (uri) {
-                    const parsed = vscode.Uri.parse(uri);
-                    const diags = vscode.languages.getDiagnostics(parsed);
+            {
+                description: 'Get LSP diagnostics (errors, warnings) from the IDE for a file or the entire workspace.',
+                inputSchema: { path: z.string().optional().describe('Absolute file path. Omit for all diagnostics.') },
+            },
+            async ({ path }) => {
+                if (path) {
+                    const uri = vscode.Uri.file(path);
+                    const diags = vscode.languages.getDiagnostics(uri);
                     return textResult(JSON.stringify(diags.map(serializeDiagnostic), null, 2));
                 }
 
                 const all = vscode.languages.getDiagnostics();
                 const result: Record<string, object[]> = {};
-                for (const [docUri, diags] of all) {
+                for (const [uri, diags] of all) {
                     if (diags.length > 0) {
-                        result[docUri.toString()] = diags.map(serializeDiagnostic);
+                        result[uri.fsPath] = diags.map(serializeDiagnostic);
                     }
                 }
                 return textResult(JSON.stringify(result, null, 2));
             }
         );
 
-        mcp.tool(
+        mcp.registerTool(
             'open_file',
-            'Open a file in the IDE at an optional line and column position.',
             {
-                path: z.string().describe('Absolute path to the file to open'),
-                line: z.number().optional().describe('Line number to navigate to (1-based)'),
-                column: z.number().optional().describe('Column number to navigate to (1-based)'),
+                description: 'Open a file in the IDE at an optional line and column position.',
+                inputSchema: {
+                    path: z.string().describe('Absolute path to the file to open'),
+                    line: z.number().optional().describe('Line number to navigate to (0-based)'),
+                    column: z.number().optional().describe('Column number to navigate to (0-based)'),
+                },
             },
             async ({ path, line, column }) => {
                 const uri = vscode.Uri.file(path);
@@ -146,73 +188,40 @@ export class Bridge implements vscode.Disposable {
 
                 const options: vscode.TextDocumentShowOptions = {};
                 if (typeof line === 'number') {
-                    const pos = new vscode.Position(line - 1, (column ?? 1) - 1);
+                    const pos = new vscode.Position(line, column ?? 0);
                     options.selection = new vscode.Range(pos, pos);
                 }
 
                 await vscode.window.showTextDocument(doc, options);
-                return textResult(`Opened ${path}${line ? ` at line ${line}` : ''}`);
+                return textResult(`Opened ${path}${typeof line === 'number' ? ` at line ${line}` : ''}`);
             }
         );
 
-        mcp.tool(
-            'get_selection',
-            'Get the current text selection in the IDE.',
-            {},
-            async () => {
-                const editor = vscode.window.activeTextEditor;
-
-                if (!editor || editor.selection.isEmpty) {
-                    return textResult('No active selection');
-                }
-
-                const selection = editor.selection;
-                return textResult(JSON.stringify({
-                    file: editor.document.uri.fsPath,
-                    text: editor.document.getText(selection),
-                    start: { line: selection.start.line + 1, character: selection.start.character + 1 },
-                    end: { line: selection.end.line + 1, character: selection.end.character + 1 },
-                }, null, 2));
-            }
-        );
-
-        mcp.tool(
+        mcp.registerTool(
             'notify_file_updated',
-            'Notify the IDE that a file was changed externally so language services re-analyze it.',
-            { path: z.string().describe('Absolute path to the updated file') },
+            {
+                description: 'Notify the IDE that a file was changed externally so language services re-analyze it.',
+                inputSchema: {
+                    path: z.string().describe('Absolute path to the updated file'),
+                },
+            },
             async ({ path }) => {
                 try {
                     await vscode.workspace.openTextDocument(vscode.Uri.file(path));
                 } catch {
                     // File may not exist yet — not an error
                 }
+
                 return textResult('OK');
             }
         );
 
-        mcp.tool(
-            'get_open_tabs',
-            'Get the list of currently open editor tabs in the IDE.',
-            {},
-            async () => {
-                const tabs: { path: string; isActive: boolean }[] = [];
-
-                for (const group of vscode.window.tabGroups.all) {
-                    for (const tab of group.tabs) {
-                        if (tab.input instanceof vscode.TabInputText) {
-                            tabs.push({ path: tab.input.uri.fsPath, isActive: tab.isActive });
-                        }
-                    }
-                }
-
-                return textResult(JSON.stringify(tabs, null, 2));
-            }
-        );
-
-        mcp.tool(
+        mcp.registerTool(
             'get_document_symbols',
-            'Get the symbol outline (functions, classes, variables, etc.) of a file. Much faster than reading the entire file for understanding structure.',
-            { path: z.string().describe('Absolute path to the file') },
+            {
+                description: 'Get the symbol outline (functions, classes, variables, etc.) of a file. Much faster than reading the entire file for understanding structure.',
+                inputSchema: { path: z.string().describe('Absolute path to the file') },
+            },
             async ({ path }) => {
                 const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
                     'vscode.executeDocumentSymbolProvider', vscode.Uri.file(path)
@@ -226,58 +235,197 @@ export class Bridge implements vscode.Disposable {
             }
         );
 
-        mcp.tool(
+        mcp.registerTool(
             'find_references',
-            'Find all references to a symbol at a given position across the workspace. Uses the IDE\'s language intelligence.',
-            positionSchema,
+            {
+                description: 'Find all references to a symbol at a given position across the workspace.',
+                inputSchema: positionSchema,
+            },
             async ({ path, line, column }) => {
                 const locations = await vscode.commands.executeCommand<vscode.Location[]>(
                     'vscode.executeReferenceProvider',
                     vscode.Uri.file(path),
-                    new vscode.Position(line - 1, column - 1),
+                    new vscode.Position(line, column),
                 );
 
                 if (!locations || locations.length === 0) {
                     return textResult('No references found');
                 }
 
-                return textResult(JSON.stringify(locations.map(loc => ({
-                    path: loc.uri.fsPath,
-                    line: loc.range.start.line + 1,
-                    character: loc.range.start.character + 1,
-                })), null, 2));
+                return textResult(JSON.stringify(locations.map(serializeLocation), null, 2));
             }
         );
 
-        mcp.tool(
+        mcp.registerTool(
             'go_to_definition',
-            'Find the definition of a symbol at a given position. Uses the IDE\'s language intelligence.',
-            positionSchema,
+            {
+                description: 'Find the definition of a symbol at a given position.',
+                inputSchema: positionSchema,
+            },
             async ({ path, line, column }) => {
                 const locations = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
                     'vscode.executeDefinitionProvider',
                     vscode.Uri.file(path),
-                    new vscode.Position(line - 1, column - 1),
+                    new vscode.Position(line, column),
                 );
 
                 if (!locations || locations.length === 0) {
                     return textResult('No definition found');
                 }
 
-                return textResult(JSON.stringify(locations.map(loc => {
-                    if ('targetUri' in loc) {
-                        return {
-                            path: loc.targetUri.fsPath,
-                            line: loc.targetRange.start.line + 1,
-                            character: loc.targetRange.start.character + 1,
-                        };
-                    }
+                return textResult(JSON.stringify(locations.map(serializeLocation), null, 2));
+            }
+        );
+
+        mcp.registerTool(
+            'go_to_implementation',
+            {
+                description: 'Find implementations of an interface or abstract method at a given position.',
+                inputSchema: positionSchema,
+            },
+            async ({ path, line, column }) => {
+                const locations = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
+                    'vscode.executeImplementationProvider',
+                    vscode.Uri.file(path),
+                    new vscode.Position(line, column),
+                );
+
+                if (!locations || locations.length === 0) {
+                    return textResult('No implementations found');
+                }
+
+                return textResult(JSON.stringify(locations.map(serializeLocation), null, 2));
+            }
+        );
+
+        mcp.registerTool(
+            'go_to_type_definition',
+            {
+                description: 'Find the type definition of a symbol at a given position.',
+                inputSchema: positionSchema,
+            },
+            async ({ path, line, column }) => {
+                const locations = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
+                    'vscode.executeTypeDefinitionProvider',
+                    vscode.Uri.file(path),
+                    new vscode.Position(line, column),
+                );
+
+                if (!locations || locations.length === 0) {
+                    return textResult('No type definition found');
+                }
+
+                return textResult(JSON.stringify(locations.map(serializeLocation), null, 2));
+            }
+        );
+
+        mcp.registerTool(
+            'get_hover',
+            {
+                description: 'Get hover information (type info, documentation) for a symbol at a given position.',
+                inputSchema: positionSchema,
+            },
+            async ({ path, line, column }) => {
+                const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+                    'vscode.executeHoverProvider',
+                    vscode.Uri.file(path),
+                    new vscode.Position(line, column),
+                );
+
+                if (!hovers || hovers.length === 0) {
+                    return textResult('No hover information');
+                }
+
+                const contents = hovers.flatMap(h =>
+                    h.contents.map(c => c instanceof vscode.MarkdownString ? c.value : typeof c === 'string' ? c : '')
+                ).filter(Boolean);
+
+                return textResult(contents.join('\n\n'));
+            }
+        );
+
+        mcp.registerTool(
+            'get_call_hierarchy',
+            {
+                description: 'Get incoming and outgoing calls for a function/method at a given position.',
+                inputSchema: {
+                    ...positionSchema,
+                    direction: z.enum(['incoming', 'outgoing']).describe('Direction of the call hierarchy'),
+                },
+            },
+            async ({ path, line, column, direction }) => {
+                const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+                    'vscode.prepareCallHierarchy',
+                    vscode.Uri.file(path),
+                    new vscode.Position(line, column),
+                );
+
+                if (!items || items.length === 0) {
+                    return textResult('No call hierarchy available');
+                }
+
+                const command = direction === 'incoming'
+                    ? 'vscode.provideIncomingCalls'
+                    : 'vscode.provideOutgoingCalls';
+
+                const calls = await vscode.commands.executeCommand<
+                    (vscode.CallHierarchyIncomingCall | vscode.CallHierarchyOutgoingCall)[]
+                >(command, items[0]);
+
+                if (!calls || calls.length === 0) {
+                    return textResult(`No ${direction} calls found`);
+                }
+
+                const result = calls.map(call => {
+                    const item = 'from' in call ? call.from : call.to;
                     return {
-                        path: loc.uri.fsPath,
-                        line: loc.range.start.line + 1,
-                        character: loc.range.start.character + 1,
+                        name: item.name,
+                        kind: vscode.SymbolKind[item.kind],
+                        path: item.uri.fsPath,
+                        line: item.range.start.line,
+                        character: item.range.start.character,
                     };
-                }), null, 2));
+                });
+
+                return textResult(JSON.stringify(result, null, 2));
+            }
+        );
+
+        // --- Resources ---
+
+        mcp.registerResource(
+            'workspace_state',
+            'wingman://workspace/state',
+            { description: 'Current IDE workspace state: active file, selection, and open files.' },
+            () => {
+                const editor = vscode.window.activeTextEditor;
+
+                const openFiles: string[] = [];
+                for (const group of vscode.window.tabGroups.all) {
+                    for (const tab of group.tabs) {
+                        if (tab.input instanceof vscode.TabInputText) {
+                            openFiles.push(tab.input.uri.fsPath);
+                        }
+                    }
+                }
+
+                const state: Record<string, unknown> = {
+                    workspaces,
+                    activeFile: editor?.document.uri.fsPath ?? null,
+                    openFiles,
+                };
+
+                if (editor && !editor.selection.isEmpty) {
+                    const sel = editor.selection;
+                    state.selection = {
+                        filePath: editor.document.uri.fsPath,
+                        start: { line: sel.start.line, character: sel.start.character },
+                        end: { line: sel.end.line, character: sel.end.character },
+                        text: editor.document.getText(sel),
+                    };
+                }
+
+                return { contents: [{ uri: 'wingman://workspace/state', text: JSON.stringify(state, null, 2) }] };
             }
         );
 
@@ -285,12 +433,18 @@ export class Bridge implements vscode.Disposable {
     }
 
     dispose(): void {
+        for (const d of this.disposables) {
+            d.dispose();
+        }
+        this.disposables = [];
+
         if (this.lockfilePath) {
             removeLockfile(this.lockfilePath);
             this.lockfilePath = undefined;
         }
 
-        for (const transport of this.sessions.values()) {
+        for (const { mcp, transport } of this.sessions.values()) {
+            mcp.close().catch(() => { });
             transport.close();
         }
         this.sessions.clear();
@@ -302,36 +456,45 @@ export class Bridge implements vscode.Disposable {
     }
 }
 
+// --- Helpers & utilities ---
+
+function textResult(text: string) {
+    return { content: [{ type: 'text' as const, text }] };
+}
+
+const severityLabel: Record<number, string> = {
+    [vscode.DiagnosticSeverity.Error]: 'Error',
+    [vscode.DiagnosticSeverity.Warning]: 'Warning',
+    [vscode.DiagnosticSeverity.Information]: 'Info',
+    [vscode.DiagnosticSeverity.Hint]: 'Hint',
+};
+
 function serializeDiagnostic(d: vscode.Diagnostic): object {
     return {
         range: {
             start: { line: d.range.start.line, character: d.range.start.character },
             end: { line: d.range.end.line, character: d.range.end.character },
         },
-        severity: d.severity + 1,
+        severity: severityLabel[d.severity] ?? 'Error',
         message: d.message,
         source: d.source ?? '',
         code: typeof d.code === 'object' ? String(d.code.value) : String(d.code ?? ''),
     };
 }
 
-function writeLockfile(port: number): string {
-    mkdirSync(lockfileDir, { recursive: true });
-
-    const data = {
-        url: `http://127.0.0.1:${port}`,
-        pid: process.pid,
-        workspaces: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [],
+function serializeLocation(loc: vscode.Location | vscode.LocationLink): object {
+    if ('targetUri' in loc) {
+        return {
+            path: loc.targetUri.fsPath,
+            line: loc.targetRange.start.line,
+            character: loc.targetRange.start.character,
+        };
+    }
+    return {
+        path: loc.uri.fsPath,
+        line: loc.range.start.line,
+        character: loc.range.start.character,
     };
-
-    const lockfilePath = join(lockfileDir, `${port}.lock`);
-    writeFileSync(lockfilePath, JSON.stringify(data, null, 2));
-
-    return lockfilePath;
-}
-
-function removeLockfile(lockfilePath: string): void {
-    try { unlinkSync(lockfilePath); } catch { }
 }
 
 interface FlatSymbol {
@@ -349,8 +512,8 @@ function flattenSymbols(symbols: vscode.DocumentSymbol[], container?: string): F
         result.push({
             name: sym.name,
             kind: vscode.SymbolKind[sym.kind],
-            line: sym.range.start.line + 1,
-            character: sym.range.start.character + 1,
+            line: sym.range.start.line,
+            character: sym.range.start.character,
             ...(container ? { container } : {}),
         });
 
@@ -360,6 +523,39 @@ function flattenSymbols(symbols: vscode.DocumentSymbol[], container?: string): F
     }
 
     return result;
+}
+
+function throttle<T extends (...args: never[]) => void>(fn: T, ms: number): T {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastArgs: Parameters<T> | undefined;
+
+    return ((...args: Parameters<T>) => {
+        lastArgs = args;
+        if (timer) { return; }
+        timer = setTimeout(() => {
+            timer = undefined;
+            fn(...lastArgs!);
+        }, ms);
+    }) as T;
+}
+
+function writeLockfile(port: number): string {
+    mkdirSync(lockfileDir, { recursive: true });
+
+    const data = {
+        url: `http://127.0.0.1:${port}/mcp`,
+        pid: process.pid,
+        workspaces: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [],
+    };
+
+    const lockfilePath = join(lockfileDir, `${port}.lock`);
+    writeFileSync(lockfilePath, JSON.stringify(data, null, 2));
+
+    return lockfilePath;
+}
+
+function removeLockfile(lockfilePath: string): void {
+    try { unlinkSync(lockfilePath); } catch { }
 }
 
 function cleanStaleLockfiles(): void {
