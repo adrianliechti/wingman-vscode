@@ -71,10 +71,11 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
+    "vscode:prepublish": "npm run build",
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "build": "node esbuild.mjs --production",
+    "pretest": "tsc -p ./ && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
     "package": "vsce package"
@@ -88,6 +89,7 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.28.0",
     "eslint": "^10.2.0",
     "typescript": "^5.9.3"
   },
