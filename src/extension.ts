@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ChatModelProvider } from "./provider";
 import { Bridge } from './bridge';
-import { openAgent, getAgentPath, createStatusBarItem, agentProfileProvider } from './agent';
+import { openAgent, getAgentCommand, createStatusBarItem, agentProfileProvider } from './agent';
 
 export async function activate(context: vscode.ExtensionContext) {
 	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
@@ -23,7 +23,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.window.registerTerminalProfileProvider('wingman.agent', agentProfileProvider),
 	);
 
-	if (getAgentPath()) {
+	if (getAgentCommand()) {
 		vscode.commands.executeCommand('setContext', 'wingman.agentAvailable', true);
 		context.subscriptions.push(createStatusBarItem());
 	}
