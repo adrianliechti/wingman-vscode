@@ -32,6 +32,7 @@ export const candidates: ModelCandidate[] = [
     {
         name: 'Wingman ChatGPT Mini',
         models: [
+            { id: 'gpt-5.4-mini', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gpt-5-mini', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
     },
@@ -40,9 +41,6 @@ export const candidates: ModelCandidate[] = [
         models: [
             { id: 'gpt-5.3-codex',     limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'gpt-5.2-codex',     limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
-            { id: 'gpt-5.1-codex-max', limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
-            { id: 'gpt-5.1-codex',     limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
-            { id: 'gpt-5-codex',       limits: { maxInputTokens: 400000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
     },
     {
@@ -74,6 +72,7 @@ export const candidates: ModelCandidate[] = [
     {
         name: 'Wingman Claude Opus',
         models: [
+            { id: 'claude-opus-4-7', limits: { maxInputTokens: 200000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'claude-opus-4-6', limits: { maxInputTokens: 200000, maxOutputTokens: 128000 }, capabilities: { toolCalling: true, imageInput: true } },
             { id: 'claude-opus-4-5', limits: { maxInputTokens: 200000, maxOutputTokens:  64000 }, capabilities: { toolCalling: true, imageInput: true } },
         ],
