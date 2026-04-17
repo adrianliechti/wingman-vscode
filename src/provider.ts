@@ -3,7 +3,47 @@ import * as vscode from "vscode";
 import OpenAI from 'openai';
 
 import { type ModelInfo, candidates } from "./models";
-import type { ResponseInputItem, FunctionTool, ResponseOutputMessage } from "openai/resources/responses/responses";
+import type { ResponseInputItem, FunctionTool } from "openai/resources/responses/responses";
+import type { ReasoningEffort } from "openai/resources/shared";
+
+/**
+ * Shape matches the proposed `LanguageModelConfigurationSchema` from
+ * `vscode.proposed.chatProvider.d.ts`. We attach it via a cast so this works
+ * on stable `@types/vscode` (where it's ignored) and is picked up on hosts
+ * that support the `chatProvider` proposed API.
+ *
+ * Mirrors `buildConfigurationSchema` in vscode-copilot-chat's
+ * `languageModelAccess.ts` (title, `enumItemLabels`, per-level descriptions).
+ */
+function buildReasoningConfigurationSchema(levels: ReasoningEffort[]): Record<string, unknown> {
+    const defaultEffort: ReasoningEffort | undefined = levels.includes('medium') ? 'medium' : undefined;
+
+    return {
+        properties: {
+            reasoningEffort: {
+                type: 'string',
+                title: 'Thinking Effort',
+                enum: levels,
+                enumItemLabels: levels.map(l => String(l).charAt(0).toUpperCase() + String(l).slice(1)),
+                enumDescriptions: levels.map(describeReasoningEffort),
+                ...(defaultEffort && { default: defaultEffort }),
+                group: 'navigation',
+            },
+        },
+    };
+}
+
+function describeReasoningEffort(level: ReasoningEffort): string {
+    switch (level) {
+        case 'none': return 'No reasoning applied';
+        case 'minimal': return 'Fastest time-to-first-token with minimal reasoning';
+        case 'low': return 'Faster responses with less reasoning';
+        case 'medium': return 'Balanced reasoning and speed';
+        case 'high': return 'Greater reasoning depth but slower';
+        case 'xhigh': return 'Maximum reasoning depth but slower';
+        default: return String(level ?? '');
+    }
+}
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -16,11 +56,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
     constructor(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel) {
         this.logger = logger;
 
-        // One-time capability probe: surface which LanguageModel* exports this
-        // host actually provides, so it's obvious in the log whether the IDE
-        // version supports the proposed ThinkingPart API.
-        this.logRuntimeCapabilities();
-
         // Listen for configuration changes to invalidate cached client
         context.subscriptions.push(
             vscode.workspace.onDidChangeConfiguration(e => {
@@ -30,20 +65,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 }
             })
         );
-    }
-
-    private logRuntimeCapabilities(): void {
-        const vsAny = vscode as Record<string, unknown>;
-
-        const lmExports = Object.keys(vsAny)
-            .filter(k => k.startsWith('LanguageModel'))
-            .sort();
-
-        const hasThinking = typeof vsAny['LanguageModelThinkingPart'] === 'function';
-
-        this.logger.info(`VS Code version: ${vscode.version}`);
-        this.logger.info(`LanguageModelThinkingPart available: ${hasThinking}`);
-        this.logger.info(`LanguageModel* exports (${lmExports.length}): ${lmExports.join(', ')}`);
     }
 
     async provideLanguageModelChatInformation(_options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<ModelInfo[]> {
@@ -65,8 +86,8 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 return [];
             }
 
-            return [{
-                id: match.id,
+            const info: ModelInfo = {
+                id: `wingman/${match.id}`,
                 name: candidate.name,
 
                 family: match.id,
@@ -79,7 +100,18 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     imageInput: match.capabilities?.imageInput ?? false,
                     toolCalling: match.capabilities?.toolCalling ?? false,
                 },
-            }];
+            };
+
+            // Proposed `chatProvider` API: attach a per-model configuration
+            // schema so the host renders a reasoning-effort picker. Cast
+            // through `Record<string, unknown>` so stable `@types/vscode`
+            // (which doesn't declare `configurationSchema`) still compiles.
+            if (match.reasoningEffort && match.reasoningEffort.length > 0) {
+                (info as unknown as Record<string, unknown>).configurationSchema =
+                    buildReasoningConfigurationSchema(match.reasoningEffort);
+            }
+
+            return [info];
         });
 
         this.logger.info('Available models:', results.map(r => r.id).join(', ') || 'none');
@@ -147,11 +179,23 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 const contentParts: Array<{ type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail: "auto" }> = [];
 
                 for (const part of message.content) {
-                    if (this.isToolResultPart(part)) {
+                    if (part && typeof part === "object" && "callId" in part && "content" in part && typeof (part as { callId: unknown }).callId === "string") {
+                        const toolResult = part as { callId: string; content?: ReadonlyArray<unknown> };
+                        const text = (toolResult.content ?? []).map(c => {
+                            if (c instanceof vscode.LanguageModelTextPart) { return c.value; }
+                            if (typeof c === "string") { return c; }
+                            // Drop opaque data parts (e.g. prompt-cache breakpoints with
+                            // mimeType "cache_control") so host tooling metadata doesn't
+                            // leak into the model-visible tool output.
+                            if (c instanceof vscode.LanguageModelDataPart) { return ""; }
+                            if (c && typeof c === "object" && "mimeType" in c && "data" in c) { return ""; }
+                            try { return JSON.stringify(c); } catch { return ""; }
+                        }).join("");
+
                         input.push({
                             type: "function_call_output",
-                            call_id: part.callId,
-                            output: this.collectToolResultText(part),
+                            call_id: toolResult.callId,
+                            output: text,
                         });
                     } else if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
@@ -162,6 +206,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                         }
                     } else if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
                         const base64Data = Buffer.from(part.data).toString('base64');
+                        
                         contentParts.push({
                             type: "input_image",
                             image_url: `data:${part.mimeType};base64,${base64Data}`,
@@ -196,6 +241,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                         // Replay prior reasoning items so stateless requests preserve
                         // chain-of-thought continuity across turns (especially across tool calls).
                         const reasoningItem = this.buildReasoningItem(part);
+                        
                         if (reasoningItem) {
                             // Reasoning items must appear before the message/tool_calls they produced.
                             input.push(reasoningItem);
@@ -220,6 +266,21 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const instructions = systemTexts.join('\n\n') || undefined;
 
+        // Proposed `chatProvider` API: `options.modelConfiguration` carries
+        // per-model user configuration validated against `configurationSchema`.
+        // Read it dynamically so this compiles against stable @types/vscode.
+        const modelConfiguration =
+            (options as unknown as { modelConfiguration?: Record<string, unknown> })
+                .modelConfiguration;
+
+        const supportedEfforts = candidates.flatMap(c => c.models).find(m => m.id === modelId)?.reasoningEffort ?? [];
+        const rawEffort = modelConfiguration?.['reasoningEffort'];
+        const requestedEffort = typeof rawEffort === 'string' && (supportedEfforts as string[]).includes(rawEffort)
+            ? (rawEffort as ReasoningEffort)
+            : undefined;
+        const effectiveEffort: ReasoningEffort | undefined = requestedEffort
+            ?? (supportedEfforts.includes('medium') ? 'medium' : undefined);
+
         const stream = client.responses.stream({
             model: modelId,
 
@@ -229,6 +290,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 tools: tools,
                 tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
                 parallel_tool_calls: true,
+            }),
+
+            ...(effectiveEffort && {
+                reasoning: {
+                    effort: effectiveEffort,
+                    summary: 'auto',
+                },
             }),
 
             // Ask for encrypted reasoning so we can replay chain-of-thought across turns
@@ -273,6 +341,14 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 progress.report(new ThinkingPartCtor(event.delta, itemId));
                 thinkingActive = true;
             });
+        } else {
+            // If the host doesn't expose LanguageModelThinkingPart, the user
+            // won't see thinking tokens regardless of backend output. Log once
+            // per request so it's obvious from the output channel.
+            this.logger.warn(
+                'LanguageModelThinkingPart is not available on this VS Code version; ' +
+                'reasoning tokens will not be surfaced.'
+            );
         }
 
         const cancellationListener = token.onCancellationRequested(() => {
@@ -325,13 +401,23 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 if (item.type === 'message') {
                     endThinkingIfActive();
 
-                    const finalText = this.collectOutputMessageText(item);
+                    const finalText = item.content
+                        .map(part => part.type === 'output_text' ? part.text : '')
+                        .join('');
 
                     if (this.isValidText(finalText)) {
                         const itemId = this.getStringProp(item, 'id');
                         const streamedText = (itemId && streamedTextByItem.get(itemId)) || globalStreamedText;
-                        const missingText = this.getUnreportedText(streamedText, finalText);
-                        
+
+                        let missingText = '';
+                        if (!streamedText) {
+                            missingText = finalText;
+                        } else if (finalText.startsWith(streamedText)) {
+                            missingText = finalText.slice(streamedText.length);
+                        } else if (finalText !== streamedText) {
+                            this.logger.warn('Skipping final text replay due to non-prefix streamed/final mismatch');
+                        }
+
                         if (missingText) {
                             progress.report(new vscode.LanguageModelTextPart(missingText));
                         }
@@ -454,35 +540,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         };
     }
 
-    private isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
-        if (!value || typeof value !== "object") {
-            return false;
-        }
-
-        const obj = value as Record<string, unknown>;
-        const hasCallId = typeof obj.callId === "string";
-        const hasContent = "content" in obj;
-        return hasCallId && hasContent;
-    }
-
-    private collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string {
-        return (pr.content ?? []).map(c => {
-            if (c instanceof vscode.LanguageModelTextPart) { return c.value; }
-            if (typeof c === "string") { return c; }
-            try { return JSON.stringify(c); } catch { return ""; }
-        }).join("");
-    }
-
-    private collectOutputMessageText(message: ResponseOutputMessage): string {
-        return message.content.map(part => {
-            if (part.type === 'output_text') {
-                return part.text;
-            }
-
-            return '';
-        }).join('');
-    }
-
     private getStringProp(obj: unknown, key: string): string | undefined {
         if (!obj || typeof obj !== 'object') {
             return undefined;
@@ -490,22 +547,5 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const value = (obj as Record<string, unknown>)[key];
         return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
-    }
-
-    private getUnreportedText(streamedText: string, finalText: string): string {
-        if (!streamedText) {
-            return finalText;
-        }
-
-        if (finalText === streamedText) {
-            return '';
-        }
-
-        if (finalText.startsWith(streamedText)) {
-            return finalText.slice(streamedText.length);
-        }
-
-        this.logger.warn('Skipping final text replay due to non-prefix streamed/final mismatch');
-        return '';
     }
 }
