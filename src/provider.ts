@@ -1,10 +1,9 @@
 import * as vscode from "vscode";
-import { createHash } from "crypto";
 
 import OpenAI from 'openai';
 
-import { ModelInfo, candidates } from "./models";
-import { ResponseInputItem, FunctionTool, ResponseOutputItem, ResponseOutputMessage, ResponseReasoningItem } from "openai/resources/responses/responses";
+import { type ModelInfo, candidates } from "./models";
+import type { ResponseInputItem, FunctionTool, ResponseOutputMessage } from "openai/resources/responses/responses";
 
 export class ChatModelProvider implements vscode.LanguageModelChatProvider<ModelInfo> {
     private client?: OpenAI;
@@ -13,10 +12,14 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
     private baseUrl?: string;
 
     private readonly logger: vscode.LogOutputChannel;
-    private readonly reasoningCache = new Map<string, ResponseReasoningItem[]>();
 
     constructor(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel) {
         this.logger = logger;
+
+        // One-time capability probe: surface which LanguageModel* exports this
+        // host actually provides, so it's obvious in the log whether the IDE
+        // version supports the proposed ThinkingPart API.
+        this.logRuntimeCapabilities();
 
         // Listen for configuration changes to invalidate cached client
         context.subscriptions.push(
@@ -29,7 +32,21 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         );
     }
 
-    async provideLanguageModelChatInformation(options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<ModelInfo[]> {
+    private logRuntimeCapabilities(): void {
+        const vsAny = vscode as Record<string, unknown>;
+
+        const lmExports = Object.keys(vsAny)
+            .filter(k => k.startsWith('LanguageModel'))
+            .sort();
+
+        const hasThinking = typeof vsAny['LanguageModelThinkingPart'] === 'function';
+
+        this.logger.info(`VS Code version: ${vscode.version}`);
+        this.logger.info(`LanguageModelThinkingPart available: ${hasThinking}`);
+        this.logger.info(`LanguageModel* exports (${lmExports.length}): ${lmExports.join(', ')}`);
+    }
+
+    async provideLanguageModelChatInformation(_options: vscode.PrepareLanguageModelChatModelOptions, token: vscode.CancellationToken): Promise<ModelInfo[]> {
         if (token.isCancellationRequested) {
             return [];
         }
@@ -49,10 +66,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             }
 
             return [{
-                id: "wingman/" + match.id,
+                id: match.id,
                 name: candidate.name,
 
-                family: candidate.name.toLowerCase().replace(/ /g, '-'),
+                family: match.id,
                 version: "",
 
                 maxInputTokens: match.limits.maxInputTokens- match.limits.maxOutputTokens,
@@ -70,7 +87,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         return results;
     }
 
-    async provideTokenCount(model: ModelInfo, text: string | vscode.LanguageModelChatRequestMessage, token: vscode.CancellationToken): Promise<number> {
+    async provideTokenCount(_model: ModelInfo, text: string | vscode.LanguageModelChatRequestMessage, _token: vscode.CancellationToken): Promise<number> {
         if (typeof text === "string") {
             return Math.ceil(text.length / 4);
         }
@@ -86,19 +103,32 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const client = await this.createClient();
 
-        const input: ResponseInputItem[] = [];
-        let instructions: string | undefined;
+        if (options.tools) {
+            for (const tool of options.tools) {
+                if (!/^[\w-]+$/.test(tool.name)) {
+                    throw new Error(`Invalid tool name "${tool.name}": only alphanumeric characters, hyphens, and underscores are allowed.`);
+                }
+            }
+        }
 
         const tools: FunctionTool[] = options.tools?.map(tool => ({
             type: "function" as const,
             name: tool.name,
             description: tool.description,
-            parameters: tool.inputSchema as any,
+            parameters: tool.inputSchema as Record<string, unknown>,
             strict: false,
         })) ?? [];
 
+        const input: ResponseInputItem[] = [];
+        const systemTexts: string[] = [];
+
+        // Proposed API (dynamic): LanguageModelThinkingPart may arrive in assistant-role
+        // content when VS Code has previously emitted thinking in this session.
+        const ThinkingPartCtor = (vscode as Record<string, unknown>)['LanguageModelThinkingPart'] as
+            (new (value: string, id?: string, metadata?: { readonly [key: string]: unknown }) => vscode.LanguageModelResponsePart) | undefined;
+
         for (const message of messages) {
-            // Handle System messages (any role that's not User or Assistant)
+            // System / developer messages: concatenate all their text into the top-level instructions.
             if (message.role !== vscode.LanguageModelChatMessageRole.User &&
                 message.role !== vscode.LanguageModelChatMessageRole.Assistant) {
                 const textContent = message.content
@@ -107,19 +137,15 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     .join("");
 
                 if (textContent.trim()) {
-                    if (!instructions) {
-                        instructions = textContent;
-                    } else {
-                        input.push({
-                            role: "developer",
-                            content: [{ type: "input_text", text: textContent }],
-                        });
-                    }
+                    systemTexts.push(textContent);
                 }
+
                 continue;
             }
 
             if (message.role === vscode.LanguageModelChatMessageRole.User) {
+                const contentParts: Array<{ type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail: "auto" }> = [];
+
                 for (const part of message.content) {
                     if (this.isToolResultPart(part)) {
                         input.push({
@@ -127,13 +153,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                             call_id: part.callId,
                             output: this.collectToolResultText(part),
                         });
-                    }
-                }
-
-                const contentParts: Array<{ type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail: "auto" }> = [];
-
-                for (const part of message.content) {
-                    if (part instanceof vscode.LanguageModelTextPart) {
+                    } else if (part instanceof vscode.LanguageModelTextPart) {
                         if (this.isValidText(part.value)) {
                             contentParts.push({
                                 type: "input_text",
@@ -158,8 +178,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 }
             } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
                 let text = '';
-                const callIds: string[] = [];
-                const toolCalls: ResponseInputItem[] = [];
+                const trailingItems: ResponseInputItem[] = [];
 
                 for (const part of message.content) {
                     if (part instanceof vscode.LanguageModelTextPart) {
@@ -167,20 +186,21 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                             text += part.value;
                         }
                     } else if (part instanceof vscode.LanguageModelToolCallPart) {
-                        callIds.push(part.callId);
-                        toolCalls.push({
+                        trailingItems.push({
                             type: "function_call",
                             call_id: part.callId,
                             name: part.name,
                             arguments: JSON.stringify(part.input),
                         });
+                    } else if (ThinkingPartCtor && part instanceof ThinkingPartCtor) {
+                        // Replay prior reasoning items so stateless requests preserve
+                        // chain-of-thought continuity across turns (especially across tool calls).
+                        const reasoningItem = this.buildReasoningItem(part);
+                        if (reasoningItem) {
+                            // Reasoning items must appear before the message/tool_calls they produced.
+                            input.push(reasoningItem);
+                        }
                     }
-                }
-
-                // Inject cached reasoning items before the assistant message
-                const cachedReasoning = this.reasoningCache.get(this.computeFingerprint(text, callIds));
-                if (cachedReasoning) {
-                    input.push(...cachedReasoning);
                 }
 
                 if (text) {
@@ -190,7 +210,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                     });
                 }
 
-                input.push(...toolCalls);
+                input.push(...trailingItems);
             }
         }
 
@@ -198,10 +218,10 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             ? model.id.slice("wingman/".length)
             : model.id;
 
+        const instructions = systemTexts.join('\n\n') || undefined;
+
         const stream = client.responses.stream({
             model: modelId,
-
-            include: ['reasoning.encrypted_content'],
 
             ...(instructions && { instructions }),
 
@@ -211,13 +231,29 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 parallel_tool_calls: true,
             }),
 
+            // Ask for encrypted reasoning so we can replay chain-of-thought across turns
+            // without relying on server-side state (works under ZDR / store:false too).
+            include: ['reasoning.encrypted_content'],
+
             input: input,
         });
 
         let globalStreamedText = '';
         const streamedTextByItem = new Map<string, string>();
+        const reasoningStreamedIds = new Set<string>();
+
+        let thinkingActive = false;
+
+        const endThinkingIfActive = () => {
+            if (thinkingActive && ThinkingPartCtor) {
+                progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
+                thinkingActive = false;
+            }
+        };
 
         stream.on('response.output_text.delta', (event) => {
+            endThinkingIfActive();
+
             const itemId = this.getStringProp(event, 'item_id');
             if (itemId) {
                 const prev = streamedTextByItem.get(itemId) ?? '';
@@ -228,6 +264,17 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             progress.report(new vscode.LanguageModelTextPart(event.delta));
         });
 
+        if (ThinkingPartCtor) {
+            stream.on('response.reasoning_summary_text.delta', (event) => {
+                const itemId = this.getStringProp(event, 'item_id');
+                if (itemId) {
+                    reasoningStreamedIds.add(itemId);
+                }
+                progress.report(new ThinkingPartCtor(event.delta, itemId));
+                thinkingActive = true;
+            });
+        }
+
         const cancellationListener = token.onCancellationRequested(() => {
             stream.abort();
         });
@@ -235,17 +282,56 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         try {
             const response = await stream.finalResponse();
 
-            // Cache reasoning items for future conversation turns
-            this.cacheReasoningItems(response.output);
-
             for (const item of response.output) {
+                if (item.type === 'reasoning') {
+                    // Carry reasoning id + (optional) encrypted_content so we can
+                    // replay this reasoning item on subsequent turns. If we already
+                    // streamed the summary via reasoning_summary_text.delta, emit
+                    // empty text here to avoid duplicating it in VS Code's history.
+                    if (ThinkingPartCtor) {
+                        const alreadyStreamed = reasoningStreamedIds.has(item.id);
+                        const summaryText = alreadyStreamed
+                            ? ''
+                            : (item.summary ?? [])
+                                .map(s => s.type === 'summary_text' ? s.text : '')
+                                .join('');
+
+                        // Reasoning id + (optional) encrypted_content round-trip for replay.
+                        const metadata: Record<string, unknown> = {};
+                        if (item.encrypted_content) {
+                            metadata.encrypted_content = item.encrypted_content;
+                        }
+                        // Only stamp the done marker when this *is* the closer
+                        // (no new summary text to carry).
+                        if (summaryText === '') {
+                            metadata.vscode_reasoning_done = true;
+                        }
+
+                        progress.report(new ThinkingPartCtor(summaryText, item.id, metadata));
+
+                        // Non-streaming backend path: we just emitted a content-bearing
+                        // thinking part, so follow it with an explicit closer to mark
+                        // the thinking phase complete (matches Copilot convention).
+                        if (summaryText !== '') {
+                            progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
+                        }
+
+                        thinkingActive = false;
+                    }
+
+                    continue;
+                }
+
                 if (item.type === 'message') {
+                    endThinkingIfActive();
+
                     const finalText = this.collectOutputMessageText(item);
 
                     if (this.isValidText(finalText)) {
                         const itemId = this.getStringProp(item, 'id');
                         const streamedText = (itemId && streamedTextByItem.get(itemId)) || globalStreamedText;
                         const missingText = this.getUnreportedText(streamedText, finalText);
+                        
                         if (missingText) {
                             progress.report(new vscode.LanguageModelTextPart(missingText));
                         }
@@ -253,12 +339,16 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 }
 
                 if (item.type === "function_call") {
+                    endThinkingIfActive();
+
                     let parsedArgs = {};
+                    
                     try {
                         parsedArgs = JSON.parse(item.arguments || '{}');
-                    } catch (parseError) {
+                    } catch {
                         this.logger.error('Failed to parse tool arguments:', item.arguments || '');
                     }
+                    
                     progress.report(new vscode.LanguageModelToolCallPart(
                         item.call_id,
                         item.name || '',
@@ -270,6 +360,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             if (token.isCancellationRequested) {
                 return;
             }
+
             this.logger.error('Response failed:', String(error));
             throw error;
         } finally {
@@ -311,6 +402,58 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         return trimmed.length > 0 && trimmed.toLowerCase() !== 'undefined';
     }
 
+    /**
+     * Convert an incoming LanguageModelThinkingPart (proposed API) back into a
+     * ResponseReasoningItem so chain-of-thought is preserved across stateless
+     * Responses API calls. Returns undefined if the part doesn't carry enough
+     * information to be worth replaying.
+     */
+    private buildReasoningItem(part: unknown): ResponseInputItem | undefined {
+        if (!part || typeof part !== 'object') {
+            return undefined;
+        }
+
+        const obj = part as { value?: unknown; id?: unknown; metadata?: unknown };
+
+        // Without an id the server can't correlate the reasoning item with a
+        // prior response, so there's nothing useful to send back.
+        const id = typeof obj.id === 'string' ? obj.id : '';
+        if (!id) {
+            return undefined;
+        }
+
+        const rawValue = obj.value;
+        const valueText = Array.isArray(rawValue)
+            ? rawValue.filter((v): v is string => typeof v === 'string').join('')
+            : typeof rawValue === 'string' ? rawValue : '';
+
+        const metadata = (obj.metadata && typeof obj.metadata === 'object')
+            ? obj.metadata as Record<string, unknown>
+            : undefined;
+
+        const summary = valueText.length > 0
+            ? [{ type: 'summary_text' as const, text: valueText }]
+            : [];
+
+        const encrypted = metadata?.encrypted_content;
+        const encryptedContent = typeof encrypted === 'string' && encrypted.length > 0
+            ? encrypted
+            : undefined;
+
+        // With neither a summary nor encrypted payload, replaying the item buys
+        // us nothing — skip it rather than send an empty reasoning shell.
+        if (summary.length === 0 && !encryptedContent) {
+            return undefined;
+        }
+
+        return {
+            type: 'reasoning',
+            id,
+            summary,
+            ...(encryptedContent ? { encrypted_content: encryptedContent } : {}),
+        };
+    }
+
     private isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
         if (!value || typeof value !== "object") {
             return false;
@@ -347,51 +490,6 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const value = (obj as Record<string, unknown>)[key];
         return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
-    }
-
-    private computeFingerprint(text: string, callIds: string[]): string {
-        const hash = createHash('sha256');
-        hash.update(text);
-        for (const id of callIds) {
-            hash.update('\0');
-            hash.update(id);
-        }
-        return hash.digest('hex');
-    }
-
-    private cacheReasoningItems(output: ResponseOutputItem[]): void {
-        const reasoningItems = output.filter(
-            (item): item is ResponseReasoningItem => item.type === 'reasoning'
-        );
-
-        if (reasoningItems.length === 0) {
-            return;
-        }
-
-        let text = '';
-        const callIds: string[] = [];
-
-        for (const item of output) {
-            if (item.type === 'message') {
-                const msgText = this.collectOutputMessageText(item);
-                if (this.isValidText(msgText)) {
-                    text += msgText;
-                }
-            } else if (item.type === 'function_call') {
-                callIds.push(item.call_id);
-            }
-        }
-
-        const fingerprint = this.computeFingerprint(text, callIds);
-
-        // Cap cache to prevent unbounded growth
-        if (this.reasoningCache.size >= 100) {
-            const oldest = this.reasoningCache.keys().next().value!;
-            this.reasoningCache.delete(oldest);
-        }
-
-        this.reasoningCache.set(fingerprint, reasoningItems);
-        this.logger.info('Cached', reasoningItems.length, 'reasoning item(s) for fingerprint', fingerprint.substring(0, 8));
     }
 
     private getUnreportedText(streamedText: string, finalText: string): string {
