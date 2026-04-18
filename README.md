@@ -19,20 +19,30 @@ The extension auto-discovers models from your backend. The following model famil
 
 | Chat Model | Model IDs |
 |---|---|
-| Wingman ChatGPT | `gpt-5.4`, `gpt-5.2`, `gpt-5.1`, `gpt-5` |
-| Wingman ChatGPT Mini | `gpt-5.4-mini`, `gpt-5-mini` |
-| Wingman Codex | `gpt-5.3-codex`, `gpt-5.2-codex` |
-| Wingman Codex Mini | `gpt-5.3-codex-spark`, `gpt-5.1-codex-mini` |
-| Wingman Gemini Pro | `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro` |
-| Wingman Gemini Flash | `gemini-3-flash-preview`, `gemini-2.5-flash` |
-| Wingman Claude Opus | `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5` |
-| Wingman Claude Sonnet | `claude-sonnet-4-6`, `claude-sonnet-4-5` |
-| Wingman Claude Haiku | `claude-haiku-4-6`, `claude-haiku-4-5` |
-| Wingman Devstral | `devstral`, `devstral-medium`, `devstral-medium-latest` |
+| Wingman GPT 5.4 | `gpt-5.4` |
+| Wingman GPT 5.4 mini | `gpt-5.4-mini` |
+| Wingman GPT 5.2 | `gpt-5.2` |
+| Wingman GPT 5.1 | `gpt-5.1` |
+| Wingman Codex 5.3 | `gpt-5.3-codex` |
+| Wingman Codex 5.2 | `gpt-5.2-codex` |
+| Wingman Gemini 3.1 Pro | `gemini-3.1-pro-preview` |
+| Wingman Gemini 3 Pro | `gemini-3-pro-preview` |
+| Wingman Gemini 3 Flash | `gemini-3-flash-preview` |
+| Wingman Opus 4.7 | `claude-opus-4-7` |
+| Wingman Opus 4.6 | `claude-opus-4-6` |
+| Wingman Opus 4.5 | `claude-opus-4-5` |
+| Wingman Sonnet 4.6 | `claude-sonnet-4-6` |
+| Wingman Sonnet 4.5 | `claude-sonnet-4-5` |
+| Wingman Haiku 4.6 | `claude-haiku-4-6` |
+| Wingman Haiku 4.5 | `claude-haiku-4-5` |
+| Wingman Devstral | `devstral` |
+| Wingman Devstral Medium | `devstral-medium`, `devstral-medium-latest` |
 | Wingman Devstral Small | `devstral-small`, `devstral-small-latest` |
-| Wingman GLM | `glm-5`, `glm-4.7` |
-| Wingman GLM Flash | `glm-4.7-flash` |
-| Wingman Qwen | `qwen3.5`, `qwen3-next`, `qwen3` |
+| Wingman GLM 5 | `glm-5` |
+| Wingman GLM 4.7 | `glm-4.7` |
+| Wingman GLM 4.7 Flash | `glm-4.7-flash` |
+| Wingman Qwen 3.5 | `qwen3.5` |
+| Wingman Qwen 3 | `qwen3-next`, `qwen3` |
 | Wingman Qwen Coder | `qwen3-coder-next`, `qwen3-coder` |
 
 The extension picks the first available model from each group based on what your backend reports.

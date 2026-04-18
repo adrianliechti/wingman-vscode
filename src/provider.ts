@@ -80,25 +80,24 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         }
 
         const results = candidates.flatMap(candidate => {
-            const match = candidate.models.find(m => models.has(m.id));
-
-            if (!match) {
+            const matchedId = candidate.id.find(id => models.has(id));
+            if (!matchedId) {
                 return [];
             }
 
             const info: ModelInfo = {
-                id: `wingman/${match.id}`,
+                id: `wingman/${matchedId}`,
                 name: candidate.name,
 
-                family: match.id,
+                family: matchedId,
                 version: "",
 
-                maxInputTokens: match.limits.maxInputTokens- match.limits.maxOutputTokens,
-                maxOutputTokens: match.limits.maxOutputTokens,
+                maxInputTokens: candidate.limits.maxInputTokens - candidate.limits.maxOutputTokens,
+                maxOutputTokens: candidate.limits.maxOutputTokens,
 
                 capabilities: {
-                    imageInput: match.capabilities?.imageInput ?? false,
-                    toolCalling: match.capabilities?.toolCalling ?? false,
+                    imageInput: candidate.capabilities?.imageInput ?? false,
+                    toolCalling: candidate.capabilities?.toolCalling ?? false,
                 },
             };
 
@@ -106,9 +105,9 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             // schema so the host renders a reasoning-effort picker. Cast
             // through `Record<string, unknown>` so stable `@types/vscode`
             // (which doesn't declare `configurationSchema`) still compiles.
-            if (match.reasoningEffort && match.reasoningEffort.length > 0) {
+            if (candidate.reasoningEffort && candidate.reasoningEffort.length > 0) {
                 (info as unknown as Record<string, unknown>).configurationSchema =
-                    buildReasoningConfigurationSchema(match.reasoningEffort);
+                    buildReasoningConfigurationSchema(candidate.reasoningEffort);
             }
 
             return [info];
@@ -273,7 +272,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             (options as unknown as { modelConfiguration?: Record<string, unknown> })
                 .modelConfiguration;
 
-        const supportedEfforts = candidates.flatMap(c => c.models).find(m => m.id === modelId)?.reasoningEffort ?? [];
+        const supportedEfforts = candidates.find(c => c.id.includes(modelId))?.reasoningEffort ?? [];
         const rawEffort = modelConfiguration?.['reasoningEffort'];
         const requestedEffort = typeof rawEffort === 'string' && (supportedEfforts as string[]).includes(rawEffort)
             ? (rawEffort as ReasoningEffort)
