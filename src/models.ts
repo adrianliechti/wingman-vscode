@@ -100,21 +100,21 @@ export const candidates: ModelCandidate[] = [
 		name: "Wingman Opus 4.7",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high", "xhigh"],
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
 	},
 	{
 		id: ["claude-opus-4-6"],
 		name: "Wingman Opus 4.6",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high"],
 	},
 	{
 		id: ["claude-opus-4-5"],
 		name: "Wingman Opus 4.5",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high"],
 	},
 
 	{
@@ -122,14 +122,14 @@ export const candidates: ModelCandidate[] = [
 		name: "Wingman Sonnet 4.6",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high"],
 	},
 	{
 		id: ["claude-sonnet-4-5"],
 		name: "Wingman Sonnet 4.5",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high"],
 	},
 
 	{
@@ -137,25 +137,17 @@ export const candidates: ModelCandidate[] = [
 		name: "Wingman Haiku 4.6",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
 	},
 	{
 		id: ["claude-haiku-4-5"],
 		name: "Wingman Haiku 4.5",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["minimal", "low", "medium", "high"],
 	},
 
 	// Devstral models
 	{
-		id: ["devstral"],
-		name: "Wingman Devstral",
-		limits: { maxInputTokens: 256000, maxOutputTokens: 256000 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["devstral-medium", "devstral-medium-latest"],
+		id: ["devstral-medium", "devstral-medium-latest", "devstral-latest", "devstral"],
 		name: "Wingman Devstral Medium",
 		limits: { maxInputTokens: 256000, maxOutputTokens: 256000 },
 		capabilities: { toolCalling: true },
@@ -168,6 +160,12 @@ export const candidates: ModelCandidate[] = [
 	},
 
 	// GLM models
+	{
+		id: ["glm-5.1"],
+		name: "Wingman GLM 5.1",
+		limits: { maxInputTokens: 200000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true },
+	},
 	{
 		id: ["glm-5"],
 		name: "Wingman GLM 5",
@@ -189,7 +187,13 @@ export const candidates: ModelCandidate[] = [
 
 	// Qwen models
 	{
-		id: ["qwen3.5"],
+		id: ["qwen3.6-plus", "qwen3.6"],
+		name: "Wingman Qwen 3.6",
+		limits: { maxInputTokens: 256000, maxOutputTokens: 64000 },
+		capabilities: { toolCalling: true },
+	},
+	{
+		id: ["qwen3.5-plus", "qwen3.5"],
 		name: "Wingman Qwen 3.5",
 		limits: { maxInputTokens: 256000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true },
@@ -202,7 +206,7 @@ export const candidates: ModelCandidate[] = [
 	},
 	{
 		id: ["qwen3-coder-next", "qwen3-coder"],
-		name: "Wingman Qwen Coder",
+		name: "Wingman Qwen 3 Coder",
 		limits: { maxInputTokens: 256000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true },
 	},
