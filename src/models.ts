@@ -31,6 +31,13 @@ export interface ModelCandidate {
 export const candidates: ModelCandidate[] = [
 	// OpenAI models
 	{
+		id: ["gpt-5.5"],
+		name: "Wingman GPT 5.5",
+		limits: { maxInputTokens: 400000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
+	},
+	{
 		id: ["gpt-5.4"],
 		name: "Wingman GPT 5.4",
 		limits: { maxInputTokens: 400000, maxOutputTokens: 128000 },
@@ -76,19 +83,19 @@ export const candidates: ModelCandidate[] = [
 
 	// Gemini models
 	{
-		id: ["gemini-3.1-pro-preview"],
+		id: ["gemini-3.1-pro", "gemini-3.1-pro-preview"],
 		name: "Wingman Gemini 3.1 Pro",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 	{
-		id: ["gemini-3-pro-preview"],
+		id: ["gemini-3-pro", "gemini-3-pro-preview"],
 		name: "Wingman Gemini 3 Pro",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 	{
-		id: ["gemini-3-flash-preview"],
+		id: ["gemini-3-flash", "gemini-3-flash-preview"],
 		name: "Wingman Gemini 3 Flash",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
