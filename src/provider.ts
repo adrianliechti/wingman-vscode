@@ -222,6 +222,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                 }
             } else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
                 let text = '';
+                const reasoningItems: ResponseInputItem[] = [];
                 const trailingItems: ResponseInputItem[] = [];
 
                 for (const part of message.content) {
@@ -240,22 +241,28 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
                         // Replay prior reasoning items so stateless requests preserve
                         // chain-of-thought continuity across turns (especially across tool calls).
                         const reasoningItem = this.buildReasoningItem(part);
-                        
+
                         if (reasoningItem) {
-                            // Reasoning items must appear before the message/tool_calls they produced.
-                            input.push(reasoningItem);
+                            reasoningItems.push(reasoningItem);
                         }
                     }
                 }
 
-                if (text) {
-                    input.push({
-                        role: "assistant",
-                        content: text,
-                    });
-                }
+                // Only replay reasoning when there's a paired message/tool_call to
+                // attach it to — orphan reasoning items have no producer and can be
+                // rejected by the Responses API.
+                if (text || trailingItems.length > 0) {
+                    input.push(...reasoningItems);
 
-                input.push(...trailingItems);
+                    if (text) {
+                        input.push({
+                            role: "assistant",
+                            content: text,
+                        });
+                    }
+
+                    input.push(...trailingItems);
+                }
             }
         }
 
@@ -277,70 +284,13 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
         const requestedEffort = typeof rawEffort === 'string' && (supportedEfforts as string[]).includes(rawEffort)
             ? (rawEffort as ReasoningEffort)
             : undefined;
-        const effectiveEffort: ReasoningEffort | undefined = requestedEffort
-            ?? (supportedEfforts.includes('medium') ? 'medium' : undefined);
+        // Treat the project-defined 'none' as "skip reasoning" — omit the reasoning
+        // block entirely rather than sending a non-standard effort value.
+        const effectiveEffort: ReasoningEffort | undefined = requestedEffort === 'none'
+            ? undefined
+            : requestedEffort ?? (supportedEfforts.includes('medium') ? 'medium' : undefined);
 
-        const stream = client.responses.stream({
-            model: modelId,
-
-            ...(instructions && { instructions }),
-
-            ...(tools.length > 0 && {
-                tools: tools,
-                tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
-                parallel_tool_calls: true,
-            }),
-
-            ...(effectiveEffort && {
-                reasoning: {
-                    effort: effectiveEffort,
-                    summary: 'auto',
-                },
-            }),
-
-            // Ask for encrypted reasoning so we can replay chain-of-thought across turns
-            // without relying on server-side state (works under ZDR / store:false too).
-            include: ['reasoning.encrypted_content'],
-
-            input: input,
-        });
-
-        let globalStreamedText = '';
-        const streamedTextByItem = new Map<string, string>();
-        const reasoningStreamedIds = new Set<string>();
-
-        let thinkingActive = false;
-
-        const endThinkingIfActive = () => {
-            if (thinkingActive && ThinkingPartCtor) {
-                progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
-                thinkingActive = false;
-            }
-        };
-
-        stream.on('response.output_text.delta', (event) => {
-            endThinkingIfActive();
-
-            const itemId = this.getStringProp(event, 'item_id');
-            if (itemId) {
-                const prev = streamedTextByItem.get(itemId) ?? '';
-                streamedTextByItem.set(itemId, prev + event.delta);
-            }
-
-            globalStreamedText += event.delta;
-            progress.report(new vscode.LanguageModelTextPart(event.delta));
-        });
-
-        if (ThinkingPartCtor) {
-            stream.on('response.reasoning_summary_text.delta', (event) => {
-                const itemId = this.getStringProp(event, 'item_id');
-                if (itemId) {
-                    reasoningStreamedIds.add(itemId);
-                }
-                progress.report(new ThinkingPartCtor(event.delta, itemId));
-                thinkingActive = true;
-            });
-        } else {
+        if (!ThinkingPartCtor) {
             // If the host doesn't expose LanguageModelThinkingPart, the user
             // won't see thinking tokens regardless of backend output. Log once
             // per request so it's obvious from the output channel.
@@ -350,107 +300,199 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
             );
         }
 
-        const cancellationListener = token.onCancellationRequested(() => {
-            stream.abort();
-        });
+        const runOnce = async (inputItems: ResponseInputItem[]): Promise<void> => {
+            const stream = client.responses.stream({
+                model: modelId,
+
+                ...(instructions && { instructions }),
+
+                ...(tools.length > 0 && {
+                    tools: tools,
+                    tool_choice: options.toolMode === vscode.LanguageModelChatToolMode.Required ? 'required' : 'auto',
+                    parallel_tool_calls: true,
+                }),
+
+                ...(effectiveEffort && {
+                    reasoning: {
+                        effort: effectiveEffort,
+                        summary: 'auto',
+                    },
+                }),
+
+                // Ask for encrypted reasoning so we can replay chain-of-thought across turns
+                // without relying on server-side state (works under ZDR / store:false too).
+                include: ['reasoning.encrypted_content'],
+
+                input: inputItems,
+            });
+
+            let globalStreamedText = '';
+            const streamedTextByItem = new Map<string, string>();
+            const reasoningStreamedIds = new Set<string>();
+
+            let thinkingActive = false;
+
+            const endThinkingIfActive = () => {
+                if (thinkingActive && ThinkingPartCtor) {
+                    progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
+                    thinkingActive = false;
+                }
+            };
+
+            stream.on('response.output_text.delta', (event) => {
+                endThinkingIfActive();
+
+                const itemId = this.getStringProp(event, 'item_id');
+                if (itemId) {
+                    const prev = streamedTextByItem.get(itemId) ?? '';
+                    streamedTextByItem.set(itemId, prev + event.delta);
+                }
+
+                globalStreamedText += event.delta;
+                progress.report(new vscode.LanguageModelTextPart(event.delta));
+            });
+
+            if (ThinkingPartCtor) {
+                stream.on('response.reasoning_summary_text.delta', (event) => {
+                    const itemId = this.getStringProp(event, 'item_id');
+                    if (itemId) {
+                        reasoningStreamedIds.add(itemId);
+                    }
+                    progress.report(new ThinkingPartCtor(event.delta, itemId));
+                    thinkingActive = true;
+                });
+            }
+
+            const cancellationListener = token.onCancellationRequested(() => {
+                stream.abort();
+            });
+
+            try {
+                const response = await stream.finalResponse();
+
+                for (const item of response.output) {
+                    if (item.type === 'reasoning') {
+                        // Carry reasoning id + (optional) encrypted_content so we can
+                        // replay this reasoning item on subsequent turns. If we already
+                        // streamed the summary via reasoning_summary_text.delta, emit
+                        // empty text here to avoid duplicating it in VS Code's history.
+                        if (ThinkingPartCtor) {
+                            const alreadyStreamed = reasoningStreamedIds.has(item.id);
+                            const summaryText = alreadyStreamed
+                                ? ''
+                                : (item.summary ?? [])
+                                    .map(s => s.type === 'summary_text' ? s.text : '')
+                                    .join('');
+
+                            // Reasoning id + (optional) encrypted_content round-trip for replay.
+                            const metadata: Record<string, unknown> = {};
+                            if (item.encrypted_content) {
+                                metadata.encrypted_content = item.encrypted_content;
+                            }
+                            // Only stamp the done marker when this *is* the closer
+                            // (no new summary text to carry).
+                            if (summaryText === '') {
+                                metadata.vscode_reasoning_done = true;
+                            }
+
+                            progress.report(new ThinkingPartCtor(summaryText, item.id, metadata));
+
+                            // Non-streaming backend path: we just emitted a content-bearing
+                            // thinking part, so follow it with an explicit closer to mark
+                            // the thinking phase complete (matches Copilot convention).
+                            if (summaryText !== '') {
+                                progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
+                            }
+
+                            thinkingActive = false;
+                        }
+
+                        continue;
+                    }
+
+                    if (item.type === 'message') {
+                        endThinkingIfActive();
+
+                        const finalText = item.content
+                            .map(part => part.type === 'output_text' ? part.text : '')
+                            .join('');
+
+                        if (this.isValidText(finalText)) {
+                            const itemId = this.getStringProp(item, 'id');
+                            const streamedText = (itemId && streamedTextByItem.get(itemId)) || globalStreamedText;
+
+                            let missingText = '';
+                            if (!streamedText) {
+                                missingText = finalText;
+                            } else if (finalText.startsWith(streamedText)) {
+                                missingText = finalText.slice(streamedText.length);
+                            } else if (finalText !== streamedText) {
+                                this.logger.warn('Skipping final text replay due to non-prefix streamed/final mismatch');
+                            }
+
+                            if (missingText) {
+                                progress.report(new vscode.LanguageModelTextPart(missingText));
+                            }
+                        }
+                    }
+
+                    if (item.type === "function_call") {
+                        endThinkingIfActive();
+
+                        let parsedArgs = {};
+
+                        try {
+                            parsedArgs = JSON.parse(item.arguments || '{}');
+                        } catch {
+                            this.logger.error('Failed to parse tool arguments:', item.arguments || '');
+                        }
+
+                        progress.report(new vscode.LanguageModelToolCallPart(
+                            item.call_id,
+                            item.name || '',
+                            parsedArgs
+                        ));
+                    }
+                }
+            } finally {
+                cancellationListener.dispose();
+            }
+        };
 
         try {
-            const response = await stream.finalResponse();
-
-            for (const item of response.output) {
-                if (item.type === 'reasoning') {
-                    // Carry reasoning id + (optional) encrypted_content so we can
-                    // replay this reasoning item on subsequent turns. If we already
-                    // streamed the summary via reasoning_summary_text.delta, emit
-                    // empty text here to avoid duplicating it in VS Code's history.
-                    if (ThinkingPartCtor) {
-                        const alreadyStreamed = reasoningStreamedIds.has(item.id);
-                        const summaryText = alreadyStreamed
-                            ? ''
-                            : (item.summary ?? [])
-                                .map(s => s.type === 'summary_text' ? s.text : '')
-                                .join('');
-
-                        // Reasoning id + (optional) encrypted_content round-trip for replay.
-                        const metadata: Record<string, unknown> = {};
-                        if (item.encrypted_content) {
-                            metadata.encrypted_content = item.encrypted_content;
-                        }
-                        // Only stamp the done marker when this *is* the closer
-                        // (no new summary text to carry).
-                        if (summaryText === '') {
-                            metadata.vscode_reasoning_done = true;
-                        }
-
-                        progress.report(new ThinkingPartCtor(summaryText, item.id, metadata));
-
-                        // Non-streaming backend path: we just emitted a content-bearing
-                        // thinking part, so follow it with an explicit closer to mark
-                        // the thinking phase complete (matches Copilot convention).
-                        if (summaryText !== '') {
-                            progress.report(new ThinkingPartCtor('', '', { vscode_reasoning_done: true }));
-                        }
-
-                        thinkingActive = false;
-                    }
-
-                    continue;
-                }
-
-                if (item.type === 'message') {
-                    endThinkingIfActive();
-
-                    const finalText = item.content
-                        .map(part => part.type === 'output_text' ? part.text : '')
-                        .join('');
-
-                    if (this.isValidText(finalText)) {
-                        const itemId = this.getStringProp(item, 'id');
-                        const streamedText = (itemId && streamedTextByItem.get(itemId)) || globalStreamedText;
-
-                        let missingText = '';
-                        if (!streamedText) {
-                            missingText = finalText;
-                        } else if (finalText.startsWith(streamedText)) {
-                            missingText = finalText.slice(streamedText.length);
-                        } else if (finalText !== streamedText) {
-                            this.logger.warn('Skipping final text replay due to non-prefix streamed/final mismatch');
-                        }
-
-                        if (missingText) {
-                            progress.report(new vscode.LanguageModelTextPart(missingText));
-                        }
-                    }
-                }
-
-                if (item.type === "function_call") {
-                    endThinkingIfActive();
-
-                    let parsedArgs = {};
-                    
-                    try {
-                        parsedArgs = JSON.parse(item.arguments || '{}');
-                    } catch {
-                        this.logger.error('Failed to parse tool arguments:', item.arguments || '');
-                    }
-                    
-                    progress.report(new vscode.LanguageModelToolCallPart(
-                        item.call_id,
-                        item.name || '',
-                        parsedArgs
-                    ));
-                }
-            }
+            await runOnce(input);
         } catch (error) {
             if (token.isCancellationRequested) {
                 return;
             }
 
-            this.logger.error('Response failed:', String(error));
-            throw error;
-        } finally {
-            cancellationListener.dispose();
+            // Recovery for poisoned history: a prior reasoning item's
+            // encrypted_content may be unverifiable by the current model
+            // (e.g. after a model swap). Drop reasoning items and retry once.
+            const filtered = this.isEncryptedReasoningError(error)
+                ? input.filter(item => item.type !== 'reasoning')
+                : input;
+
+            if (filtered.length === input.length) {
+                this.logger.error('Response failed:', String(error));
+                throw error;
+            }
+
+            this.logger.warn(`Encrypted reasoning verification failed; retrying without ${input.length - filtered.length} prior reasoning item(s).`);
+            try {
+                await runOnce(filtered);
+            } catch (retryError) {
+                if (token.isCancellationRequested) {
+                    return;
+                }
+                this.logger.error('Response failed:', String(retryError));
+                throw retryError;
+            }
         }
+    }
+
+    private isEncryptedReasoningError(error: unknown): boolean {
+        return /encrypted content.*could not be (verified|decrypted|parsed)/i.test(String(error));
     }
 
     private async createClient(): Promise<OpenAI> {
@@ -483,8 +525,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
     }
 
     private isValidText(value: string): boolean {
-        const trimmed = value.trim();
-        return trimmed.length > 0 && trimmed.toLowerCase() !== 'undefined';
+        return value.trim().length > 0;
     }
 
     /**
