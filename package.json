@@ -96,7 +96,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.14",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "hono": "^4.12.15",
+    "hono": "^4.12.22",
     "openai": "^6.34.0"
   }
 }
