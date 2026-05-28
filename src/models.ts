@@ -115,6 +115,13 @@ const candidates: ModelCandidate[] = [
 
 	// Claude models
 	{
+		id: ["claude-opus-4-8"],
+		name: "Wingman Opus 4.8",
+		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
+	},
+	{
 		id: ["claude-opus-4-7"],
 		name: "Wingman Opus 4.7",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
