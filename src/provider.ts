@@ -191,7 +191,7 @@ export class ChatModelProvider implements vscode.LanguageModelChatProvider<Model
 
         const config = vscode.workspace.getConfiguration('wingman');
         const baseUrl = config.get<string>('baseUrl', 'http://localhost:4242/v1');
-        const apiKey = config.get<string>('apiKey', '-');
+        const apiKey = config.get<string>('apiKey', '-').trim() || '-';
 
         this.logger.info('Platform:', baseUrl);
 

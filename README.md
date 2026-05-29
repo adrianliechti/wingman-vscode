@@ -56,7 +56,7 @@ The extension picks the first available model from each group based on what your
 | Setting | Description | Default |
 |---|---|---|
 | `wingman.baseUrl` | Base URL of your Wingman API | `http://localhost:4242/v1` |
-| `wingman.apiKey` | API key for authentication | _(empty)_ |
+| `wingman.apiKey` | API key for authentication | `-` |
 
 ## Requirements
 
