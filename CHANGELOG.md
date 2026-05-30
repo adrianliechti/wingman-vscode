@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.2.2] - 2026-05-14
+
+- Removed the MCP bridge. The extension no longer starts a local HTTP server, writes lockfiles under `~/.wingman/bridge/`, or exposes VS Code language features over MCP. You can safely delete that directory after upgrading.
+- Dropped `@hono/node-server`, `@modelcontextprotocol/sdk`, and `hono` dependencies.
+
 ## [0.1.1] - 2026-03-19
 
 - Added reasoning support for Responses API

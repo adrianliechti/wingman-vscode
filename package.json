@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.2.2",
+  "version": "0.2.5",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -18,36 +18,10 @@
     "Chat"
   ],
   "activationEvents": [
-    "onLanguageModelChat:wingman",
-    "onStartupFinished"
+    "onLanguageModelChat:wingman"
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "wingman.openAgent",
-        "title": "Wingman Agent",
-        "category": "Wingman",
-        "icon": "$(rocket)"
-      }
-    ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "wingman.openAgent",
-          "when": "wingman.agentAvailable"
-        }
-      ]
-    },
-    "terminal": {
-      "profiles": [
-        {
-          "id": "wingman.agent",
-          "title": "Wingman Agent",
-          "icon": "rocket"
-        }
-      ]
-    },
     "configuration": {
       "title": "Wingman",
       "properties": {
@@ -58,7 +32,7 @@
         },
         "wingman.apiKey": {
           "type": "string",
-          "default": "",
+          "default": "-",
           "scope": "machine"
         }
       }
@@ -82,21 +56,18 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.6.0",
     "@types/vscode": "^1.109.0",
-    "@typescript-eslint/eslint-plugin": "^8.59.0",
-    "@typescript-eslint/parser": "^8.59.0",
+    "@types/node": "^25.8.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser": "^8.59.3",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.28.0",
-    "eslint": "^10.2.1",
+    "eslint": "^10.3.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "hono": "^4.12.15",
-    "openai": "^6.34.0"
+    "openai": "^6.37.0"
   }
 }
