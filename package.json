@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -11,14 +11,14 @@
   },
   "license": "MIT",
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.123.0"
   },
   "categories": [
     "AI",
     "Chat"
   ],
   "activationEvents": [
-    "onLanguageModelChat:wingman"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -37,10 +37,11 @@
         }
       }
     },
-    "languageModelChatProviders": [
+    "commands": [
       {
-        "vendor": "wingman",
-        "displayName": "Wingman"
+        "command": "wingman.syncModels",
+        "title": "Sync Models",
+        "category": "Wingman"
       }
     ]
   },
@@ -66,8 +67,5 @@
     "esbuild": "^0.28.0",
     "eslint": "^10.3.0",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "openai": "^6.37.0"
   }
 }
