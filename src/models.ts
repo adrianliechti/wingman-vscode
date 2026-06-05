@@ -1,10 +1,23 @@
 /**
- * Reasoning effort levels forwarded verbatim by the built-in "Custom
- * Endpoint" provider. GPT-5.1+ models accept "none" (which replaced
- * "minimal") to disable reasoning; the Wingman gateway maps "none" to
- * thinking-off for Anthropic/Google upstreams.
+ * Reasoning effort levels offered in the "Thinking Effort" picker.
+ *
+ * Responses API models: forwarded verbatim as `reasoning.effort`; GPT-5.1+
+ * accept "none" (which replaced "minimal") to disable reasoning.
+ *
+ * Messages API models: the provider only forwards "low" | "medium" | "high"
+ * as `output_config.effort`, and only once custom models can declare
+ * adaptive thinking support — until then the picker is advisory.
  */
 type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+
+/**
+ * Wire protocol the built-in provider speaks for a model. Overrides the
+ * group-level `apiType`; the path suffix is appended to the model `url`
+ * (`/responses`, `/messages`, `/chat/completions`). The `messages` type is
+ * the native Anthropic Messages API and enables prompt-cache breakpoints
+ * and thinking-block round-tripping.
+ */
+type ApiType = "responses" | "messages" | "chat-completions";
 
 /**
  * Model entry of the built-in `customendpoint` language model provider
@@ -14,6 +27,7 @@ export interface CustomEndpointModel {
 	id: string;
 	name: string;
 	url: string;
+	apiType: ApiType;
 	toolCalling: boolean;
 	vision: boolean;
 	maxInputTokens: number;
@@ -25,8 +39,12 @@ export interface CustomEndpointModel {
 
 interface ModelLimits {
 	/**
-	 * VS Code expects the prompt/input budget here, not the total context
-	 * window when a provider documents input + output together.
+	 * The provider uses this verbatim as the prompt budget and computes the
+	 * context window as `maxInputTokens + maxOutputTokens`. Use the vendor's
+	 * documented max *input* tokens — no subtraction needed when input is
+	 * documented separately (Anthropic, Gemini). Vendors that only document
+	 * a total context window (OpenAI: 400K window, 272K input) publish the
+	 * output-reserved input limit themselves; use that number.
 	 */
 	maxInputTokens: number;
 	maxOutputTokens: number;
@@ -51,6 +69,12 @@ interface ModelCandidate {
 	capabilities?: ModelCapabilities;
 
 	/**
+	 * Wire protocol for this model: `responses` for OpenAI, `messages` for
+	 * Anthropic, `chat-completions` (default) for third-party models.
+	 */
+	apiType?: ApiType;
+
+	/**
 	 * Reasoning effort levels this model accepts. When present, the built-in
 	 * provider renders a "Thinking Effort" picker and forwards the chosen
 	 * value as `reasoning.effort` (Responses API).
@@ -63,6 +87,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.5"],
 		name: "GPT 5.5",
+		apiType: "responses",
 		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -70,6 +95,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.4"],
 		name: "GPT 5.4",
+		apiType: "responses",
 		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -77,6 +103,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.4-mini"],
 		name: "GPT 5.4 mini",
+		apiType: "responses",
 		limits: { maxInputTokens: 272000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -84,6 +111,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.2"],
 		name: "GPT 5.2",
+		apiType: "responses",
 		limits: { maxInputTokens: 272000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -91,6 +119,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.1"],
 		name: "GPT 5.1",
+		apiType: "responses",
 		limits: { maxInputTokens: 272000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
@@ -99,6 +128,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.3-codex"],
 		name: "Codex 5.3",
+		apiType: "responses",
 		limits: { maxInputTokens: 272000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh"],
@@ -106,6 +136,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.2-codex"],
 		name: "Codex 5.2",
+		apiType: "responses",
 		limits: { maxInputTokens: 272000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh"],
@@ -141,6 +172,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-8"],
 		name: "Opus 4.8",
+		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -148,6 +180,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-7"],
 		name: "Opus 4.7",
+		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
@@ -155,6 +188,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-6"],
 		name: "Opus 4.6",
+		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
@@ -162,6 +196,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-5"],
 		name: "Opus 4.5",
+		apiType: "messages",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
@@ -170,6 +205,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-sonnet-4-6"],
 		name: "Sonnet 4.6",
+		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
@@ -177,6 +213,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-sonnet-4-5"],
 		name: "Sonnet 4.5",
+		apiType: "messages",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
@@ -185,12 +222,14 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-haiku-4-6"],
 		name: "Haiku 4.6",
+		apiType: "messages",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 	{
 		id: ["claude-haiku-4-5"],
 		name: "Haiku 4.5",
+		apiType: "messages",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
@@ -288,6 +327,7 @@ function toModel(candidate: ModelCandidate, modelId: string, url: string): Custo
 		id: modelId,
 		name: candidate.name,
 		url,
+		apiType: candidate.apiType ?? "chat-completions",
 		toolCalling: candidate.capabilities?.toolCalling ?? false,
 		vision: candidate.capabilities?.imageInput ?? false,
 		maxInputTokens: candidate.limits.maxInputTokens,

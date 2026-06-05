@@ -40,11 +40,14 @@ async function syncModels(context: vscode.ExtensionContext, logger: vscode.LogOu
 			throw new Error('The Wingman backend reported no supported models.');
 		}
 
+		// Group-level fallback only — every model carries an explicit apiType:
+		// "responses" for OpenAI, "messages" for Anthropic, "chat-completions"
+		// for third-party models.
 		await vscode.commands.executeCommand('lm.migrateLanguageModelsProviderGroup', {
 			name: groupName,
 			vendor: groupVendor,
 			apiKey,
-			apiType: 'responses',
+			apiType: 'chat-completions',
 			models,
 		});
 
