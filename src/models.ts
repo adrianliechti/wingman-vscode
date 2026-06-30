@@ -203,6 +203,14 @@ const candidates: ModelCandidate[] = [
 	},
 
 	{
+		id: ["claude-sonnet-5"],
+		name: "Sonnet 5",
+		apiType: "messages",
+		limits: { maxInputTokens: 1000000, maxOutputTokens: 64000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high"],
+	},
+	{
 		id: ["claude-sonnet-4-6"],
 		name: "Sonnet 4.6",
 		apiType: "messages",
@@ -313,13 +321,25 @@ const candidates: ModelCandidate[] = [
 	},
 ];
 
-export function toCustomEndpointModels(availableModelIds: Iterable<string>, url: string): CustomEndpointModel[] {
+export interface CustomEndpointModels {
+	models: CustomEndpointModel[];
+
+	/** Backend model ids no candidate claims — surfaced so they don't vanish silently. */
+	unmatched: string[];
+}
+
+export function toCustomEndpointModels(availableModelIds: Iterable<string>, url: string): CustomEndpointModels {
 	const available = new Set(availableModelIds);
 
-	return candidates.flatMap(candidate => {
+	const models = candidates.flatMap(candidate => {
 		const modelId = candidate.id.find(id => available.has(id));
 		return modelId ? [toModel(candidate, modelId, url)] : [];
 	});
+
+	const known = new Set(candidates.flatMap(candidate => candidate.id));
+	const unmatched = [...available].filter(id => !known.has(id));
+
+	return { models, unmatched };
 }
 
 function toModel(candidate: ModelCandidate, modelId: string, url: string): CustomEndpointModel {

@@ -28,11 +28,13 @@
         "wingman.baseUrl": {
           "type": "string",
           "default": "http://localhost:4242/v1",
+          "description": "Base URL of the Wingman backend (OpenAI-compatible API).",
           "scope": "machine"
         },
         "wingman.apiKey": {
           "type": "string",
           "default": "-",
+          "description": "API key sent to the Wingman backend. Stored in plain settings, so keep the default for a local backend without authentication.",
           "scope": "machine"
         }
       }
@@ -57,7 +59,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.123.0",
     "@types/node": "^25.8.0",
     "@typescript-eslint/eslint-plugin": "^8.59.3",
     "@typescript-eslint/parser": "^8.59.3",
