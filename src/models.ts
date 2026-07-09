@@ -2,13 +2,14 @@
  * Reasoning effort levels offered in the "Thinking Effort" picker.
  *
  * Responses API models: forwarded verbatim as `reasoning.effort`; GPT-5.1+
- * accept "none" (which replaced "minimal") to disable reasoning.
+ * accept "none" (which replaced "minimal") to disable reasoning, and GPT-5.6+
+ * add "max" above "xhigh" for the hardest quality-first workloads.
  *
  * Messages API models: the provider only forwards "low" | "medium" | "high"
  * as `output_config.effort`, and only once custom models can declare
  * adaptive thinking support — until then the picker is advisory.
  */
-type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Wire protocol the built-in provider speaks for a model. Overrides the
@@ -84,6 +85,22 @@ interface ModelCandidate {
 
 const candidates: ModelCandidate[] = [
 	// OpenAI models
+	{
+		id: ["gpt-5.6", "gpt-5.6-sol"],
+		name: "GPT 5.6",
+		apiType: "responses",
+		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
+	{
+		id: ["gpt-5.6-luna"],
+		name: "GPT 5.6 Luna",
+		apiType: "responses",
+		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
 	{
 		id: ["gpt-5.5"],
 		name: "GPT 5.5",
