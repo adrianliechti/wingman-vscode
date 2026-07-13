@@ -86,8 +86,8 @@ interface ModelCandidate {
 const candidates: ModelCandidate[] = [
 	// OpenAI models
 	{
-		id: ["gpt-5.6", "gpt-5.6-sol"],
-		name: "GPT 5.6",
+		id: ["gpt-5.6-sol", "gpt-5.6"],
+		name: "GPT 5.6 Sol",
 		apiType: "responses",
 		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -96,6 +96,14 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.6-luna"],
 		name: "GPT 5.6 Luna",
+		apiType: "responses",
+		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
+	{
+		id: ["gpt-5.6-terra"],
+		name: "GPT 5.6 Terra",
 		apiType: "responses",
 		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
