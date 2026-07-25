@@ -40,10 +40,11 @@ export interface CustomEndpointModel {
 }
 
 /**
- * Token limits as the vendor documents them. Vendors that advertise a total
- * context window shared by input and output (OpenAI: 1,050,000/400,000,
- * Anthropic: 1M/200K) declare `contextWindow`. Vendors that document an
- * input-only limit (Gemini) declare `maxInputTokens` verbatim.
+ * Token limits as the vendor documents them (cross-checked against
+ * https://models.dev). Vendors that advertise a total context window shared
+ * by input and output (OpenAI, Anthropic, GLM, Qwen) declare
+ * `contextWindow`. Vendors that document an input-only limit (Gemini)
+ * declare `maxInputTokens` verbatim.
  *
  * The built-in provider uses `maxInputTokens` verbatim as the prompt budget
  * and displays `maxInputTokens + maxOutputTokens` as the context window (see
@@ -296,25 +297,25 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["glm-5.1"],
 		name: "GLM 5.1",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 131072 },
+		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-5"],
 		name: "GLM 5",
-		limits: { maxInputTokens: 204800, maxOutputTokens: 131072 },
+		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-4.7"],
 		name: "GLM 4.7",
-		limits: { maxInputTokens: 204800, maxOutputTokens: 131072 },
+		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-4.7-flash"],
 		name: "GLM 4.7 Flash",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 131072 },
+		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 
@@ -322,25 +323,25 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["qwen3.7-max"],
 		name: "Qwen 3.7 Max",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 65536 },
+		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.6-plus", "qwen3.6"],
 		name: "Qwen 3.6",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 65536 },
+		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.6-flash"],
 		name: "Qwen 3.6 Flash",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 65536 },
+		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.5-plus", "qwen3.5"],
 		name: "Qwen 3.5",
-		limits: { maxInputTokens: 983616, maxOutputTokens: 65536 },
+		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
@@ -352,7 +353,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["qwen3-coder-plus", "qwen3-coder-flash", "qwen3-coder-next", "qwen3-coder"],
 		name: "Qwen 3 Coder",
-		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
+		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 ];
