@@ -2,8 +2,9 @@
  * Reasoning effort levels offered in the "Thinking Effort" picker.
  *
  * Responses API models: forwarded verbatim as `reasoning.effort`; GPT-5.1+
- * accept "none" (which replaced "minimal") to disable reasoning, and GPT-5.6+
- * add "max" above "xhigh" for the hardest quality-first workloads.
+ * accept "none" (which replaced "minimal") to disable reasoning — except the
+ * reasoning-only GPT-5.5 — and GPT-5.6+ add "max" above "xhigh" for the
+ * hardest quality-first workloads.
  *
  * Messages API models: the provider only forwards "low" | "medium" | "high"
  * as `output_config.effort`, and only once custom models can declare
@@ -107,7 +108,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "responses",
 		limits: { maxInputTokens: 922000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
+		reasoningEffort: ["low", "medium", "high", "xhigh"],
 	},
 	{
 		id: ["gpt-5.4"],
@@ -187,12 +188,20 @@ const candidates: ModelCandidate[] = [
 
 	// Claude models
 	{
+		id: ["claude-opus-5"],
+		name: "Opus 5",
+		apiType: "messages",
+		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["claude-opus-4-8"],
 		name: "Opus 4.8",
 		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-opus-4-7"],
@@ -200,7 +209,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-opus-4-6"],
@@ -208,7 +217,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high", "max"],
 	},
 	{
 		id: ["claude-opus-4-5"],
@@ -225,7 +234,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-sonnet-4-6"],
@@ -233,15 +242,14 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { maxInputTokens: 1000000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
+		reasoningEffort: ["none", "low", "medium", "high", "max"],
 	},
 	{
 		id: ["claude-sonnet-4-5"],
 		name: "Sonnet 4.5",
 		apiType: "messages",
 		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
+		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 
 	{
