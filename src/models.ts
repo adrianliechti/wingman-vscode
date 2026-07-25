@@ -42,11 +42,13 @@ export interface CustomEndpointModel {
 interface ModelLimits {
 	/**
 	 * The provider uses this verbatim as the prompt budget and computes the
-	 * context window as `maxInputTokens + maxOutputTokens`. Use the vendor's
-	 * documented max *input* tokens — no subtraction needed when input is
-	 * documented separately (Anthropic, Gemini). Vendors that only document
-	 * a total context window (OpenAI: 400K window, 272K input) publish the
-	 * output-reserved input limit themselves; use that number.
+	 * context window as `maxInputTokens + maxOutputTokens` (see
+	 * `resolveModelTokenLimits` in the bundled Copilot extension). So this
+	 * must hold the output-reserved input budget, not the advertised window:
+	 * Anthropic's context window is the *total* shared by input and output —
+	 * subtract (1M window, 128K output → 872000). OpenAI publishes the
+	 * output-reserved input limit themselves (400K window, 272K input); use
+	 * that number. Gemini documents an input-only limit; use it verbatim.
 	 */
 	maxInputTokens: number;
 	maxOutputTokens: number;
@@ -199,7 +201,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-opus-5"],
 		name: "Opus 5",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
@@ -207,7 +209,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-opus-4-8"],
 		name: "Opus 4.8",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
@@ -215,7 +217,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-opus-4-7"],
 		name: "Opus 4.7",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
@@ -223,7 +225,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-opus-4-6"],
 		name: "Opus 4.6",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "max"],
 	},
@@ -231,7 +233,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-opus-4-5"],
 		name: "Opus 4.5",
 		apiType: "messages",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
+		limits: { maxInputTokens: 136000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high"],
 	},
@@ -240,7 +242,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-sonnet-5"],
 		name: "Sonnet 5",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
@@ -248,7 +250,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-sonnet-4-6"],
 		name: "Sonnet 4.6",
 		apiType: "messages",
-		limits: { maxInputTokens: 1000000, maxOutputTokens: 128000 },
+		limits: { maxInputTokens: 872000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "max"],
 	},
@@ -256,7 +258,7 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-sonnet-4-5"],
 		name: "Sonnet 4.5",
 		apiType: "messages",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
+		limits: { maxInputTokens: 136000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 
@@ -264,14 +266,14 @@ const candidates: ModelCandidate[] = [
 		id: ["claude-haiku-4-6"],
 		name: "Haiku 4.6",
 		apiType: "messages",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
+		limits: { maxInputTokens: 136000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 	{
 		id: ["claude-haiku-4-5"],
 		name: "Haiku 4.5",
 		apiType: "messages",
-		limits: { maxInputTokens: 200000, maxOutputTokens: 64000 },
+		limits: { maxInputTokens: 136000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 
