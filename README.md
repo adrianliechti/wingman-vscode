@@ -39,6 +39,7 @@ The extension auto-discovers models from your backend. The following model famil
 | Gemini 3.1 Pro | `gemini-3.1-pro`, `gemini-3.1-pro-preview` |
 | Gemini 3 Pro | `gemini-3-pro`, `gemini-3-pro-preview` |
 | Gemini 3 Flash | `gemini-3-flash`, `gemini-3-flash-preview` |
+| Fable 5.1 | `claude-fable-5-1` |
 | Opus 4.8 | `claude-opus-4-8` |
 | Opus 4.7 | `claude-opus-4-7` |
 | Opus 4.6 | `claude-opus-4-6` |

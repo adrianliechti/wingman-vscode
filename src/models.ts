@@ -6,9 +6,10 @@
  * reasoning-only GPT-5.5 — and GPT-5.6+ add "max" above "xhigh" for the
  * hardest quality-first workloads.
  *
- * Messages API models: the provider only forwards "low" | "medium" | "high"
- * as `output_config.effort`, and only once custom models can declare
- * adaptive thinking support — until then the picker is advisory.
+ * Messages API models: forwarded verbatim as `output_config.effort`; Anthropic
+ * accepts "low" | "medium" | "high" and, on selected models, "xhigh" and
+ * "max". Disabling thinking is a separate `thinking.type` control, not an
+ * effort level.
  */
 type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -200,12 +201,20 @@ const candidates: ModelCandidate[] = [
 
 	// Claude models
 	{
+		id: ["claude-fable-5-1"],
+		name: "Fable 5.1",
+		apiType: "messages",
+		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["claude-opus-5"],
 		name: "Opus 5",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-opus-4-8"],
@@ -213,7 +222,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-opus-4-7"],
@@ -221,7 +230,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-opus-4-6"],
@@ -229,7 +238,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "max"],
+		reasoningEffort: ["low", "medium", "high", "max"],
 	},
 	{
 		id: ["claude-opus-4-5"],
@@ -237,7 +246,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
+		reasoningEffort: ["low", "medium", "high"],
 	},
 
 	{
@@ -246,7 +255,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
 		id: ["claude-sonnet-4-6"],
@@ -254,7 +263,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "max"],
+		reasoningEffort: ["low", "medium", "high", "max"],
 	},
 	{
 		id: ["claude-sonnet-4-5"],
