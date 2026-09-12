@@ -1,19 +1,22 @@
 import * as vscode from 'vscode';
 
 import { toCustomEndpointModels, CustomEndpointModel } from './models';
+import { UtilityModelDefaults } from './utilityModels';
 
 const groupName = 'Wingman';
 const groupVendor = 'customendpoint';
 const syncHintShownKey = 'wingman.syncHintShown';
 
-let syncInFlight: Promise<void> | undefined;
+let pendingSync: Promise<void> = Promise.resolve();
 
 export function activate(context: vscode.ExtensionContext) {
 	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
+	const utilityModels = new UtilityModelDefaults(groupVendor, logger);
 
 	context.subscriptions.push(
 		logger,
-		vscode.commands.registerCommand('wingman.syncModels', () => syncModels(context, logger, true)),
+		utilityModels,
+		vscode.commands.registerCommand('wingman.syncModels', () => syncModels(context, logger, utilityModels, true)),
 	);
 
 	// One-shot flag from older versions that made sync a write-once operation.
@@ -22,19 +25,20 @@ export function activate(context: vscode.ExtensionContext) {
 	// Sync on every startup so extension updates, backend model changes and
 	// setting changes all reach the provider group. Unchanged state is
 	// detected against the stored group and not rewritten.
-	void syncModels(context, logger, false);
+	void syncModels(context, logger, utilityModels, false);
 }
 
 export function deactivate() { }
 
-function syncModels(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel, interactive: boolean): Promise<void> {
-	// The startup sync and the manual command can overlap; two concurrent
-	// migrations would produce a spurious "already exists" failure.
-	syncInFlight ??= doSyncModels(context, logger, interactive).finally(() => { syncInFlight = undefined; });
-	return syncInFlight;
+function syncModels(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel, utilityModels: UtilityModelDefaults, interactive: boolean): Promise<void> {
+	// The startup sync, the manual command and the retry button can overlap.
+	// Run them one after another so each reports its own outcome and no two
+	// migrations race for the same group.
+	pendingSync = pendingSync.then(() => doSyncModels(context, logger, utilityModels, interactive));
+	return pendingSync;
 }
 
-async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel, interactive: boolean): Promise<void> {
+async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel, utilityModels: UtilityModelDefaults, interactive: boolean): Promise<void> {
 	const config = vscode.workspace.getConfiguration('wingman');
 	const baseUrl = config.get<string>('baseUrl', 'http://localhost:4242/v1').replace(/\/+$/, '');
 	const apiKey = config.get<string>('apiKey', '-').trim() || '-';
@@ -54,10 +58,16 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 			throw new Error('The Wingman backend reported no supported models.');
 		}
 
-		const seeded = await seedGroup(apiKey, models);
 		const { found, updated } = await updateGroupFiles(context, models, logger);
 
-		if (!seeded && found === 0) {
+		// The migration command stores the API key as a new secret before it
+		// rejects a duplicate group, so probing it on every startup would
+		// leave an orphaned secret behind each time. Seed only when no profile
+		// holds the group yet, or on explicit request so a profile that lacks
+		// the group while another profile has it can still be seeded.
+		const seeded = (found === 0 || interactive) && await seedGroup(apiKey, models);
+
+		if (found === 0 && !seeded) {
 			// The group exists (migration refused to add it again) but no
 			// chatLanguageModels.json containing it was found — e.g. a remote
 			// extension host, where the file lives on the client.
@@ -74,6 +84,8 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 			}
 			return;
 		}
+
+		await utilityModels.sync(models.map(model => model.id));
 
 		if (interactive) {
 			const summary = seeded
@@ -100,7 +112,7 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 				retry,
 			).then(choice => {
 				if (choice === retry) {
-					void syncModels(context, logger, true);
+					void syncModels(context, logger, utilityModels, true);
 				}
 			});
 		}
@@ -108,9 +120,10 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 }
 
 /**
- * Seeds the provider group via the core migration command. Returns true if
- * the group was newly created, false if it already existed — the command is
- * strictly add-only and rejects a second registration.
+ * Seeds the provider group in the current profile via the core migration
+ * command, which moves the API key into VS Code's secret storage. Returns
+ * true if the group was newly created, false if it already existed — the
+ * command is strictly add-only and rejects a second registration.
  */
 async function seedGroup(apiKey: string, models: CustomEndpointModel[]): Promise<boolean> {
 	try {
@@ -173,6 +186,9 @@ async function updateGroupFiles(context: vscode.ExtensionContext, models: Custom
 			logger.info('Updated language model group in', uri.fsPath);
 			updated++;
 		} catch (error) {
+			if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+				continue;
+			}
 			logger.warn(`Could not update ${uri.fsPath}:`, error instanceof Error ? error.message : String(error));
 		}
 	}
@@ -181,33 +197,23 @@ async function updateGroupFiles(context: vscode.ExtensionContext, models: Custom
 }
 
 /**
- * chatLanguageModels.json lives in the profile root: the default profile's
- * is two levels above this extension's global storage, custom profiles keep
- * their own copy under User/profiles/<id>/.
+ * Possible locations of chatLanguageModels.json. Extension global storage
+ * always lives in the default profile, so two levels up is the user data
+ * directory: the default profile keeps its file there, custom profiles keep
+ * their own copy under profiles/<id>/. Not every candidate exists.
  */
 async function languageModelsFiles(context: vscode.ExtensionContext): Promise<vscode.Uri[]> {
 	const userDir = vscode.Uri.joinPath(context.globalStorageUri, '..', '..');
-	const candidates = [vscode.Uri.joinPath(userDir, 'chatLanguageModels.json')];
+	const files = [vscode.Uri.joinPath(userDir, 'chatLanguageModels.json')];
 
 	try {
 		for (const [name, type] of await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(userDir, 'profiles'))) {
 			if (type === vscode.FileType.Directory) {
-				candidates.push(vscode.Uri.joinPath(userDir, 'profiles', name, 'chatLanguageModels.json'));
+				files.push(vscode.Uri.joinPath(userDir, 'profiles', name, 'chatLanguageModels.json'));
 			}
 		}
 	} catch {
 		// no custom profiles
-	}
-
-	const files: vscode.Uri[] = [];
-
-	for (const uri of candidates) {
-		try {
-			await vscode.workspace.fs.stat(uri);
-			files.push(uri);
-		} catch {
-			// file does not exist
-		}
 	}
 
 	return files;

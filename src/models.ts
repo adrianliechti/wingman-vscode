@@ -3,8 +3,8 @@
  *
  * Responses API models: forwarded verbatim as `reasoning.effort`; GPT-5.1+
  * accept "none" (which replaced "minimal") to disable reasoning — except the
- * reasoning-only GPT-5.5 — and GPT-5.6+ add "max" above "xhigh" for the
- * hardest quality-first workloads.
+ * reasoning-only GPT-5.5 and GPT-6 Astra — and GPT-5.6+ add "max" above
+ * "xhigh" for the hardest quality-first workloads.
  *
  * Messages API models: forwarded verbatim as `output_config.effort`; Anthropic
  * accepts "low" | "medium" | "high" and, on selected models, "xhigh" and
@@ -72,6 +72,7 @@ interface ModelCapabilities {
 interface ModelCandidate {
 	id: string[];
 	name: string;
+	class: "large" | "medium" | "small";
 	limits: ModelLimits;
 	capabilities?: ModelCapabilities;
 
@@ -89,11 +90,22 @@ interface ModelCandidate {
 	reasoningEffort?: ReasoningEffort[];
 }
 
+// The first available model in each class is preferred for utility tasks.
 const candidates: ModelCandidate[] = [
 	// OpenAI models
 	{
+		id: ["gpt-6-astra"],
+		name: "GPT 6 Astra",
+		class: "large",
+		apiType: "responses",
+		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["gpt-5.6-sol", "gpt-5.6"],
 		name: "GPT 5.6 Sol",
+		class: "large",
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -102,6 +114,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.6-luna"],
 		name: "GPT 5.6 Luna",
+		class: "small",
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -110,6 +123,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.6-terra"],
 		name: "GPT 5.6 Terra",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -118,6 +132,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.5"],
 		name: "GPT 5.5",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -126,6 +141,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.4"],
 		name: "GPT 5.4",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -134,6 +150,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.4-mini"],
 		name: "GPT 5.4 mini",
+		class: "small",
 		apiType: "responses",
 		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -142,6 +159,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.2"],
 		name: "GPT 5.2",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -150,6 +168,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.1"],
 		name: "GPT 5.1",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -159,6 +178,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.3-codex"],
 		name: "Codex 5.3",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -167,6 +187,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gpt-5.2-codex"],
 		name: "Codex 5.2",
+		class: "medium",
 		apiType: "responses",
 		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -177,24 +198,28 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["gemini-3.5-flash"],
 		name: "Gemini 3.5 Flash",
+		class: "medium",
 		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 	{
 		id: ["gemini-3.1-pro", "gemini-3.1-pro-preview"],
 		name: "Gemini 3.1 Pro",
+		class: "large",
 		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 	{
 		id: ["gemini-3-pro", "gemini-3-pro-preview"],
 		name: "Gemini 3 Pro",
+		class: "large",
 		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 	{
 		id: ["gemini-3-flash", "gemini-3-flash-preview"],
 		name: "Gemini 3 Flash",
+		class: "small",
 		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
@@ -203,6 +228,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-fable-5-1"],
 		name: "Fable 5.1",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -211,6 +237,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-5"],
 		name: "Opus 5",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -219,6 +246,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-8"],
 		name: "Opus 4.8",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -227,6 +255,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-7"],
 		name: "Opus 4.7",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -235,6 +264,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-6"],
 		name: "Opus 4.6",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -243,6 +273,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-opus-4-5"],
 		name: "Opus 4.5",
+		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -252,6 +283,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-sonnet-5"],
 		name: "Sonnet 5",
+		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -260,6 +292,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-sonnet-4-6"],
 		name: "Sonnet 4.6",
+		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -268,6 +301,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-sonnet-4-5"],
 		name: "Sonnet 4.5",
+		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
@@ -276,6 +310,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-haiku-4-6"],
 		name: "Haiku 4.6",
+		class: "small",
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -283,6 +318,7 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["claude-haiku-4-5"],
 		name: "Haiku 4.5",
+		class: "small",
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
@@ -292,12 +328,14 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["devstral-medium", "devstral-medium-latest", "devstral-latest", "devstral"],
 		name: "Devstral Medium",
+		class: "medium",
 		limits: { maxInputTokens: 262144, maxOutputTokens: 262144 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["devstral-small", "devstral-small-latest"],
 		name: "Devstral Small",
+		class: "small",
 		limits: { maxInputTokens: 128000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true },
 	},
@@ -306,24 +344,28 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["glm-5.1"],
 		name: "GLM 5.1",
+		class: "medium",
 		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-5"],
 		name: "GLM 5",
+		class: "medium",
 		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-4.7"],
 		name: "GLM 4.7",
+		class: "medium",
 		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["glm-4.7-flash"],
 		name: "GLM 4.7 Flash",
+		class: "small",
 		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
 	},
@@ -332,36 +374,42 @@ const candidates: ModelCandidate[] = [
 	{
 		id: ["qwen3.7-max"],
 		name: "Qwen 3.7 Max",
+		class: "large",
 		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.6-plus", "qwen3.6"],
 		name: "Qwen 3.6",
+		class: "medium",
 		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.6-flash"],
 		name: "Qwen 3.6 Flash",
+		class: "small",
 		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3.5-plus", "qwen3.5"],
 		name: "Qwen 3.5",
+		class: "medium",
 		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3-next", "qwen3"],
 		name: "Qwen 3",
+		class: "medium",
 		limits: { maxInputTokens: 126976, maxOutputTokens: 32768 },
 		capabilities: { toolCalling: true },
 	},
 	{
 		id: ["qwen3-coder-plus", "qwen3-coder-flash", "qwen3-coder-next", "qwen3-coder"],
 		name: "Qwen 3 Coder",
+		class: "medium",
 		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
 		capabilities: { toolCalling: true },
 	},
@@ -374,18 +422,31 @@ export interface CustomEndpointModels {
 	unmatched: string[];
 }
 
+/** Resolves each catalog entry to the first of its ids the backend offers, in catalog order. */
+function availableCandidates(available: ReadonlySet<string>): { candidate: ModelCandidate; id: string }[] {
+	return candidates.flatMap(candidate => {
+		const id = candidate.id.find(id => available.has(id));
+		return id ? [{ candidate, id }] : [];
+	});
+}
+
 export function toCustomEndpointModels(availableModelIds: Iterable<string>, url: string): CustomEndpointModels {
 	const available = new Set(availableModelIds);
-
-	const models = candidates.flatMap(candidate => {
-		const modelId = candidate.id.find(id => available.has(id));
-		return modelId ? [toModel(candidate, modelId, url)] : [];
-	});
-
 	const known = new Set(candidates.flatMap(candidate => candidate.id));
-	const unmatched = [...available].filter(id => !known.has(id));
 
-	return { models, unmatched };
+	return {
+		models: availableCandidates(available).map(({ candidate, id }) => toModel(candidate, id, url)),
+		unmatched: [...available].filter(id => !known.has(id)),
+	};
+}
+
+/** Selects utility defaults in catalog order, sharing a model when needed. */
+export function selectUtilityModels(availableModelIds: Iterable<string>): { utilityModel: string; utilitySmallModel: string } | undefined {
+	const models = availableCandidates(new Set(availableModelIds));
+
+	const small = models.find(({ candidate }) => candidate.class === "small")?.id;
+	const general = models.find(({ candidate }) => candidate.class === "medium")?.id ?? small ?? models[0]?.id;
+	return general ? { utilityModel: general, utilitySmallModel: small ?? general } : undefined;
 }
 
 function toModel(candidate: ModelCandidate, modelId: string, url: string): CustomEndpointModel {

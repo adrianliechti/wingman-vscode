@@ -1,33 +1,62 @@
-# Wingman AI — VS Code Extension
+# Wingman AI for VS Code
 
-This extension integrates the Wingman AI platform into VS Code's Copilot Chat by configuring the **built-in "Custom Endpoint" language model provider** that ships with VS Code (1.123+). It auto-discovers the models available on your Wingman backend and registers them as a "Wingman" language model group — VS Code itself handles all chat traffic (OpenAI Responses API, streaming, tool calling, thinking, images).
+Use models from your [Wingman AI Platform](https://github.com/adrianliechti/wingman) in VS Code's Copilot Chat. The extension adds your available models to the chat model picker and keeps the list up to date.
 
-> **⚠️ Important Notice:** This extension requires the [Wingman AI Platform](https://github.com/adrianliechti/wingman) and should not be installed unless you are running a compatible Wingman backend.
+## Requirements
 
-## How it works
+- VS Code `1.123.0` or later
+- A running Wingman AI backend
 
-On first startup (and whenever you run **`Wingman: Sync Models`**), the extension:
+## Getting started
 
-1. Queries `GET {baseUrl}/models` on your Wingman backend
-2. Matches the reported model IDs against its model catalog (names, token limits, capabilities, reasoning effort levels)
-3. Registers a **Wingman** provider group with VS Code's built-in `customendpoint` vendor (`apiType: responses`, `zeroDataRetentionEnabled: true` — requests are stateless, no `previous_response_id` is ever sent)
+1. Start your Wingman backend and install the **Wingman AI** extension.
+2. Open VS Code Settings and search for **Wingman**. Set the base URL and API key if your backend requires different values from the defaults below.
+3. Run **Wingman: Sync Models** from the Command Palette.
+4. Open Copilot Chat and choose a model from the **Wingman** group in the model picker.
 
-After that, the models appear in the Copilot Chat model picker. The resulting configuration lives in your VS Code profile's `chatLanguageModels.json` (command: *Open Language Models File*) and can be edited or removed there — re-running `Wingman: Sync Models` after removal re-creates it.
+Models sync automatically when VS Code starts. Run **Wingman: Sync Models** again after changing your connection settings or the models available on your backend.
 
 ## Features
 
-- **Native Copilot Chat integration** — uses VS Code's built-in OpenAI-compatible provider; no custom wire protocol code
-- **Multi-vendor model support** — automatically discovers available models from your backend
-- **Zero Data Retention** — Responses API in stateless mode (`store: false`, no `previous_response_id`)
-- **Tool calling, vision, thinking** — capabilities forwarded per model
-- **Reasoning controls** — per-model "Thinking Effort" picker where supported
+- Choose from OpenAI, Anthropic, Gemini, and other supported models available through your backend.
+- Use tools, images, and reasoning in Copilot Chat where supported by the selected model.
+- Adjust **Thinking Effort** for compatible models.
+- Use Wingman models for summaries, titles, commit messages, and other background tasks.
 
-## Supported Models
+## Configuration
 
-The extension auto-discovers models from your backend. The following model families are supported:
+| Setting | Description | Default |
+|---|---|---|
+| `wingman.baseUrl` | Base URL of your Wingman API | `http://localhost:4242/v1` |
+| `wingman.apiKey` | API key for authentication | `-` |
+
+For a local backend without authentication, keep the default API key.
+
+To change a saved API key, update `wingman.apiKey`, then run **Open Language Models File** from the Command Palette, remove the **Wingman** group, and run **Wingman: Sync Models** again.
+
+### Utility models
+
+On VS Code versions that support utility model settings, Wingman chooses defaults for background tasks:
+
+| Setting | Used for | Preferred model |
+|---|---|---|
+| `chat.utilityModel` | General tasks such as titles and summaries | GPT 5.6 Terra |
+| `chat.utilitySmallModel` | Lightweight tasks such as commit messages and rename suggestions | GPT 5.6 Luna |
+
+If a preferred model is unavailable, Wingman chooses another supported model. Both settings may use the same model.
+
+You can change either setting in VS Code Settings. Existing choices, including **Default**, are preserved unless they select a **Custom Endpoint** model that no longer exists; those selections are replaced during sync. Utility settings also apply to background tasks outside Wingman chats.
+
+## Supported models
+
+Only supported models available on your backend appear in the picker.
 
 | Chat Model | Model IDs |
 |---|---|
+| GPT 6 Astra | `gpt-6-astra` |
+| GPT 5.6 Sol | `gpt-5.6-sol`, `gpt-5.6` |
+| GPT 5.6 Luna | `gpt-5.6-luna` |
+| GPT 5.6 Terra | `gpt-5.6-terra` |
 | GPT 5.5 | `gpt-5.5` |
 | GPT 5.4 | `gpt-5.4` |
 | GPT 5.4 mini | `gpt-5.4-mini` |
@@ -40,10 +69,12 @@ The extension auto-discovers models from your backend. The following model famil
 | Gemini 3 Pro | `gemini-3-pro`, `gemini-3-pro-preview` |
 | Gemini 3 Flash | `gemini-3-flash`, `gemini-3-flash-preview` |
 | Fable 5.1 | `claude-fable-5-1` |
+| Opus 5 | `claude-opus-5` |
 | Opus 4.8 | `claude-opus-4-8` |
 | Opus 4.7 | `claude-opus-4-7` |
 | Opus 4.6 | `claude-opus-4-6` |
 | Opus 4.5 | `claude-opus-4-5` |
+| Sonnet 5 | `claude-sonnet-5` |
 | Sonnet 4.6 | `claude-sonnet-4-6` |
 | Sonnet 4.5 | `claude-sonnet-4-5` |
 | Haiku 4.6 | `claude-haiku-4-6` |
@@ -61,21 +92,9 @@ The extension auto-discovers models from your backend. The following model famil
 | Qwen 3 | `qwen3-next`, `qwen3` |
 | Qwen 3 Coder | `qwen3-coder-plus`, `qwen3-coder-flash`, `qwen3-coder-next`, `qwen3-coder` |
 
-The extension picks the first available model from each group based on what your backend reports.
+## Troubleshooting
 
-## Configuration
-
-| Setting | Description | Default |
-|---|---|---|
-| `wingman.baseUrl` | Base URL of your Wingman API | `http://localhost:4242/v1` |
-| `wingman.apiKey` | API key for authentication | `-` |
-
-Settings are read when syncing. To apply changes, remove the existing "Wingman" group (*Open Language Models File*) and run `Wingman: Sync Models` again.
-
-## Requirements
-
-- VS Code `1.123.0` or later (built-in Copilot Chat with the "Custom Endpoint" provider)
-- A running [Wingman AI](https://github.com/adrianliechti/wingman)
+If models are missing, check that your Wingman backend is running and that the base URL and API key are correct, then run **Wingman: Sync Models**. For details about sync failures or unsupported models, open VS Code's **Output** panel and select **Wingman AI**.
 
 ## License
 
