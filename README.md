@@ -4,7 +4,7 @@ Use models from your [Wingman AI Platform](https://github.com/adrianliechti/wing
 
 ## Requirements
 
-- VS Code `1.123.0` or later
+- VS Code `1.134.0` or later
 - A running Wingman AI backend
 
 ## Getting started
@@ -36,7 +36,7 @@ To change a saved API key, update `wingman.apiKey`, then run **Open Language Mod
 
 ### Utility models
 
-On VS Code versions that support utility model settings, Wingman chooses defaults for background tasks:
+Wingman chooses defaults for background tasks:
 
 | Setting | Used for | Preferred model |
 |---|---|---|

@@ -37,8 +37,7 @@ export class UtilityModelDefaults implements vscode.Disposable {
 	}
 
 	private async configureModels(): Promise<void> {
-		// A missing default indicates an older VS Code without these settings.
-		if (this.disposed || this.modelIds.length === 0 || vscode.workspace.getConfiguration('chat').inspect(settings[0])?.defaultValue === undefined) {
+		if (this.disposed || this.modelIds.length === 0) {
 			return;
 		}
 
@@ -71,7 +70,6 @@ export class UtilityModelDefaults implements vscode.Disposable {
 		const scopes: [vscode.ConfigurationTarget, string | undefined][] = [
 			[vscode.ConfigurationTarget.Global, value?.globalValue],
 			[vscode.ConfigurationTarget.Workspace, value?.workspaceValue],
-			[vscode.ConfigurationTarget.WorkspaceFolder, value?.workspaceFolderValue],
 		];
 
 		if (scopes.every(([, configured]) => configured === undefined)) {

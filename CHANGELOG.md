@@ -4,6 +4,43 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.3.8] - 2026-09-24
+
+- Added GPT 6 Sol, GPT 6 Luna and Opus 5.5.
+- Thinking Effort now works for Claude models.
+- Fixed chat requests for base URLs without `/v1`.
+- Requires VS Code 1.134 or later.
+
+## [0.3.7] - 2026-09-12
+
+- Added GPT 6 Astra and Fable 5.1.
+- Wingman now picks default models for background tasks such as titles and commit messages.
+
+## [0.3.6] - 2026-07-25
+
+- Token limits now follow each vendor's context window.
+
+## [0.3.5] - 2026-07-25
+
+- Raised the Sonnet 5 and Sonnet 4.6 output limit to 128K.
+
+## [0.3.4] - 2026-07-25
+
+- Added Opus 5.
+- Fixed Thinking Effort levels and simplified GPT model names.
+
+## [0.3.3] - 2026-07-09
+
+- Added GPT 5.6 and Sonnet 5.
+
+## [0.3.1] - 2026-06-05
+
+- Claude models now use the Anthropic Messages API.
+
+## [0.3.0] - 2026-06-04
+
+- Models are now served by VS Code's built-in Custom Endpoint provider.
+
 ## [0.2.2] - 2026-05-14
 
 - Removed the MCP bridge. The extension no longer starts a local HTTP server, writes lockfiles under `~/.wingman/bridge/`, or exposes VS Code language features over MCP. You can safely delete that directory after upgrading.

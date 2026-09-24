@@ -15,30 +15,40 @@ type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Wire protocol the built-in provider speaks for a model. Overrides the
- * group-level `apiType`; the path suffix is appended to the model `url`
- * (`/responses`, `/messages`, `/chat/completions`). The `messages` type is
- * the native Anthropic Messages API and enables prompt-cache breakpoints
- * and thinking-block round-tripping.
+ * group-level `apiType`. The `messages` type is the native Anthropic
+ * Messages API and enables prompt-cache breakpoints and thinking-block
+ * round-tripping.
  */
 type ApiType = "responses" | "messages" | "chat-completions";
+
+/**
+ * Endpoint path per wire protocol. The model `url` carries the full path:
+ * the built-in provider inserts `/v1` into base URLs without a version
+ * segment, which would diverge from the `/models` URL the backend is
+ * queried with.
+ */
+const apiPaths: Record<ApiType, string> = {
+	"responses": "/responses",
+	"messages": "/messages",
+	"chat-completions": "/chat/completions",
+};
 
 /**
  * Model entry of the built-in `customendpoint` language model provider
  * shipped with VS Code's bundled Copilot Chat extension.
  */
-export interface CustomEndpointModel {
+export type CustomEndpointModel = ModelLimits & {
 	id: string;
 	name: string;
 	url: string;
 	apiType: ApiType;
 	toolCalling: boolean;
 	vision: boolean;
-	maxInputTokens: number;
-	maxOutputTokens: number;
 	thinking?: boolean;
+	adaptiveThinking?: boolean;
 	zeroDataRetentionEnabled?: boolean;
 	supportsReasoningEffort?: ReasoningEffort[];
-}
+};
 
 /**
  * Token limits as the vendor documents them (cross-checked against
@@ -47,11 +57,10 @@ export interface CustomEndpointModel {
  * `contextWindow`. Vendors that document an input-only limit (Gemini)
  * declare `maxInputTokens` verbatim.
  *
- * The built-in provider uses `maxInputTokens` verbatim as the prompt budget
- * and displays `maxInputTokens + maxOutputTokens` as the context window (see
- * `resolveModelTokenLimits` in the bundled Copilot extension), so
- * {@link toModel} derives the output-reserved input budget from
- * `contextWindow` entries as `contextWindow - maxOutputTokens`.
+ * {@link toModel} forwards them verbatim: the built-in provider treats
+ * `contextWindow` as the source of truth and derives the output-reserved
+ * input budget as `contextWindow - maxOutputTokens`; without it the window
+ * is `maxInputTokens + maxOutputTokens`.
  */
 type ModelLimits =
 	| { contextWindow: number; maxInputTokens?: never; maxOutputTokens: number }
@@ -67,6 +76,14 @@ interface ModelCapabilities {
 	 * accepting an effort parameter.
 	 */
 	thinking?: boolean;
+
+	/**
+	 * Whether a Messages API model supports adaptive thinking. The built-in
+	 * provider only sends a `thinking` config — and with it the chosen
+	 * `output_config.effort` — when this is set; otherwise thinking stays at
+	 * the model default and the effort picker has no effect.
+	 */
+	adaptiveThinking?: boolean;
 }
 
 interface ModelCandidate {
@@ -85,7 +102,8 @@ interface ModelCandidate {
 	/**
 	 * Reasoning effort levels this model accepts. When present, the built-in
 	 * provider renders a "Thinking Effort" picker and forwards the chosen
-	 * value as `reasoning.effort` (Responses API).
+	 * value as `reasoning.effort` (Responses API) or `output_config.effort`
+	 * (Messages API, only with `adaptiveThinking`).
 	 */
 	reasoningEffort?: ReasoningEffort[];
 }
@@ -249,7 +267,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -258,7 +276,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -267,7 +285,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -276,7 +294,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -285,7 +303,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -294,7 +312,7 @@ const candidates: ModelCandidate[] = [
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "max"],
 	},
 	{
@@ -304,7 +322,6 @@ const candidates: ModelCandidate[] = [
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["low", "medium", "high"],
 	},
 
 	{
@@ -313,7 +330,7 @@ const candidates: ModelCandidate[] = [
 		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
@@ -322,7 +339,7 @@ const candidates: ModelCandidate[] = [
 		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "max"],
 	},
 	{
@@ -331,7 +348,7 @@ const candidates: ModelCandidate[] = [
 		class: "medium",
 		apiType: "messages",
 		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
+		capabilities: { toolCalling: true, imageInput: true },
 	},
 
 	{
@@ -457,12 +474,12 @@ function availableCandidates(available: ReadonlySet<string>): { candidate: Model
 	});
 }
 
-export function toCustomEndpointModels(availableModelIds: Iterable<string>, url: string): CustomEndpointModels {
+export function toCustomEndpointModels(availableModelIds: Iterable<string>, baseUrl: string): CustomEndpointModels {
 	const available = new Set(availableModelIds);
 	const known = new Set(candidates.flatMap(candidate => candidate.id));
 
 	return {
-		models: availableCandidates(available).map(({ candidate, id }) => toModel(candidate, id, url)),
+		models: availableCandidates(available).map(({ candidate, id }) => toModel(candidate, id, baseUrl)),
 		unmatched: [...available].filter(id => !known.has(id)),
 	};
 }
@@ -476,21 +493,24 @@ export function selectUtilityModels(availableModelIds: Iterable<string>): { util
 	return general ? { utilityModel: general, utilitySmallModel: small ?? general } : undefined;
 }
 
-function toModel(candidate: ModelCandidate, modelId: string, url: string): CustomEndpointModel {
-	const limits = candidate.limits;
+function toModel(candidate: ModelCandidate, modelId: string, baseUrl: string): CustomEndpointModel {
+	const apiType = candidate.apiType ?? "chat-completions";
 
 	const model: CustomEndpointModel = {
 		id: modelId,
 		name: candidate.name,
-		url,
-		apiType: candidate.apiType ?? "chat-completions",
+		url: baseUrl + apiPaths[apiType],
+		apiType,
 		toolCalling: candidate.capabilities?.toolCalling ?? false,
 		vision: candidate.capabilities?.imageInput ?? false,
-		maxInputTokens: limits.contextWindow !== undefined ? limits.contextWindow - limits.maxOutputTokens : limits.maxInputTokens,
-		maxOutputTokens: limits.maxOutputTokens,
-		thinking: candidate.capabilities?.thinking ?? !!candidate.reasoningEffort?.length,
+		...candidate.limits,
+		thinking: candidate.capabilities?.thinking ?? (!!candidate.capabilities?.adaptiveThinking || !!candidate.reasoningEffort?.length),
 		zeroDataRetentionEnabled: true,
 	};
+
+	if (candidate.capabilities?.adaptiveThinking) {
+		model.adaptiveThinking = true;
+	}
 
 	if (candidate.reasoningEffort?.length) {
 		model.supportsReasoningEffort = candidate.reasoningEffort;

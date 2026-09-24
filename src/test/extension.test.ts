@@ -55,11 +55,36 @@ suite('Utility model selection', () => {
 		assert.ok(models.every(model => !Object.hasOwn(model, 'class')));
 	});
 
-	test('reserves the output budget within vendor context windows and reports unknown ids', () => {
+	test('forwards vendor limits verbatim and reports unknown ids', () => {
 		const { models, unmatched } = toCustomEndpointModels(['claude-opus-5', 'gemini-3-flash', 'unknown-model'], 'http://localhost/v1');
 		assert.deepStrictEqual(models.map(model => model.id), ['gemini-3-flash', 'claude-opus-5']);
-		assert.strictEqual(models.find(model => model.id === 'claude-opus-5')?.maxInputTokens, 1000000 - 128000);
-		assert.strictEqual(models.find(model => model.id === 'gemini-3-flash')?.maxInputTokens, 1048576);
+		const opus = models.find(model => model.id === 'claude-opus-5')!;
+		const gemini = models.find(model => model.id === 'gemini-3-flash')!;
+		assert.deepStrictEqual([opus.contextWindow, opus.maxInputTokens, opus.maxOutputTokens], [1000000, undefined, 128000]);
+		assert.deepStrictEqual([gemini.contextWindow, gemini.maxInputTokens, gemini.maxOutputTokens], [undefined, 1048576, 65536]);
+		assert.ok(!Object.hasOwn(opus, 'maxInputTokens') && !Object.hasOwn(gemini, 'contextWindow'));
 		assert.deepStrictEqual(unmatched, ['unknown-model']);
+	});
+
+	test('enables adaptive thinking only for Claude models that support it', () => {
+		const { models } = toCustomEndpointModels(['claude-opus-5-5', 'claude-opus-4-5', 'claude-sonnet-4-5', 'gpt-6-sol'], 'http://localhost/v1');
+		const byId = new Map(models.map(model => [model.id, model]));
+		assert.strictEqual(byId.get('claude-opus-5-5')?.adaptiveThinking, true);
+		assert.strictEqual(byId.get('claude-opus-5-5')?.thinking, true);
+		for (const id of ['claude-opus-4-5', 'claude-sonnet-4-5', 'gpt-6-sol']) {
+			assert.ok(!Object.hasOwn(byId.get(id)!, 'adaptiveThinking'), id);
+		}
+		// Without adaptive thinking the provider sends no thinking config or effort.
+		assert.strictEqual(byId.get('claude-opus-4-5')?.thinking, false);
+		assert.ok(!Object.hasOwn(byId.get('claude-opus-4-5')!, 'supportsReasoningEffort'));
+	});
+
+	test('points each model at the full endpoint path of its API', () => {
+		const { models } = toCustomEndpointModels(['gpt-6-sol', 'claude-opus-5-5', 'glm-5.1'], 'http://localhost:4242/v1');
+		assert.deepStrictEqual(Object.fromEntries(models.map(model => [model.id, model.url])), {
+			'gpt-6-sol': 'http://localhost:4242/v1/responses',
+			'claude-opus-5-5': 'http://localhost:4242/v1/messages',
+			'glm-5.1': 'http://localhost:4242/v1/chat/completions',
+		});
 	});
 });
