@@ -4,6 +4,10 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.3.10] - 2026-09-29
+
+- Added Sonnet 5.5 with a 1M-token context window, 128K output tokens, vision, tool use, and adaptive thinking.
+
 ## [0.3.9] - 2026-09-24
 
 - Thinking Effort now works for Claude models.

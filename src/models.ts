@@ -325,6 +325,15 @@ const candidates: ModelCandidate[] = [
 	},
 
 	{
+		id: ["claude-sonnet-5-5"],
+		name: "Sonnet 5.5",
+		class: "medium",
+		apiType: "messages",
+		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["claude-sonnet-5"],
 		name: "Sonnet 5",
 		class: "medium",

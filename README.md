@@ -51,6 +51,8 @@ You can change either setting in VS Code Settings. Existing choices, including *
 
 Only supported models available on your backend appear in the picker.
 
+[Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) supports a 1M-token context window, up to 128K output tokens, image input, tool use, and adaptive thinking. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`.
+
 | Chat Model | Model IDs |
 |---|---|
 | GPT 6 Astra | `gpt-6-astra` |
@@ -77,6 +79,7 @@ Only supported models available on your backend appear in the picker.
 | Opus 4.7 | `claude-opus-4-7` |
 | Opus 4.6 | `claude-opus-4-6` |
 | Opus 4.5 | `claude-opus-4-5` |
+| Sonnet 5.5 | `claude-sonnet-5-5` |
 | Sonnet 5 | `claude-sonnet-5` |
 | Sonnet 4.6 | `claude-sonnet-4-6` |
 | Sonnet 4.5 | `claude-sonnet-4-5` |
