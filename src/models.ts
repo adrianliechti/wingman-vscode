@@ -1,9 +1,9 @@
 /**
  * Reasoning effort levels offered in the "Thinking Effort" picker.
  *
- * Responses API models: forwarded verbatim as `reasoning.effort`; GPT-5.1+
- * accept "none" (which replaced "minimal") to disable reasoning — except the
- * reasoning-only GPT-5.5 and GPT-6 Astra — and GPT-5.6+ add "max" above
+ * Responses API models: forwarded verbatim as `reasoning.effort`. "none"
+ * disables reasoning where supported. GPT-6 Astra, GPT-6.1 Sol, and the
+ * Codex models below require at least "low". GPT-5.6+ add "max" above
  * "xhigh" for the hardest quality-first workloads.
  *
  * Messages API models: forwarded verbatim as `output_config.effort`; Anthropic
@@ -121,6 +121,15 @@ const candidates: ModelCandidate[] = [
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
+		id: ["gpt-6.1-sol"],
+		name: "GPT 6.1 Sol",
+		class: "large",
+		apiType: "responses",
+		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["gpt-6-sol"],
 		name: "GPT 6 Sol",
 		class: "large",
@@ -172,7 +181,7 @@ const candidates: ModelCandidate[] = [
 		apiType: "responses",
 		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh"],
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
 	},
 	{
 		id: ["gpt-5.4"],
