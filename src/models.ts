@@ -386,6 +386,16 @@ const candidates: ModelCandidate[] = [
 		capabilities: { toolCalling: true, imageInput: true },
 	},
 
+	{
+		id: ["claude-haiku-5-5"],
+		name: "Haiku 5.5",
+		class: "small",
+		apiType: "messages",
+		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+
 	// Devstral models
 	{
 		id: ["devstral-medium", "devstral-medium-latest", "devstral-latest", "devstral"],

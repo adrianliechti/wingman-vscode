@@ -79,6 +79,23 @@ suite('Utility model selection', () => {
 		assert.ok(!Object.hasOwn(byId.get('claude-opus-4-5')!, 'supportsReasoningEffort'));
 	});
 
+	test('discovers Haiku 5.5 with native efforts without replacing an existing utility preference', () => {
+		const { models, unmatched } = toCustomEndpointModels(['claude-haiku-5-5'], 'http://localhost:4242/v1');
+		assert.deepStrictEqual(unmatched, []);
+		assert.strictEqual(models.length, 1);
+		const haiku = models[0];
+		assert.strictEqual(haiku.url, 'http://localhost:4242/v1/messages');
+		assert.deepStrictEqual([haiku.contextWindow, haiku.maxOutputTokens], [1000000, 128000]);
+		assert.strictEqual(haiku.adaptiveThinking, true);
+		assert.strictEqual(haiku.vision, true);
+		assert.strictEqual(haiku.toolCalling, true);
+		assert.deepStrictEqual(haiku.supportsReasoningEffort, ['low', 'medium', 'high', 'xhigh', 'max']);
+		assert.deepStrictEqual(selectUtilityModels(['claude-haiku-5-5', 'claude-haiku-4-6']), {
+			utilityModel: 'claude-haiku-4-6',
+			utilitySmallModel: 'claude-haiku-4-6',
+		});
+	});
+
 	test('points each model at the full endpoint path of its API', () => {
 		const { models } = toCustomEndpointModels(['gpt-6-sol', 'claude-opus-5-5', 'glm-5.1'], 'http://localhost:4242/v1');
 		assert.deepStrictEqual(Object.fromEntries(models.map(model => [model.id, model.url])), {
