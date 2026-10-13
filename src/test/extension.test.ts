@@ -66,6 +66,12 @@ suite('Utility model selection', () => {
 		assert.deepStrictEqual(unmatched, ['unknown-model']);
 	});
 
+	test('reserves output inside the shared Gemini 4 Argon window', () => {
+		const { models } = toCustomEndpointModels(['gemini-4-argon'], 'http://localhost/v1');
+		const argon = models.find(model => model.id === 'gemini-4-argon')!;
+		assert.deepStrictEqual([argon.contextWindow, argon.maxInputTokens, argon.maxOutputTokens], [1048576, undefined, 65536]);
+	});
+
 	test('enables adaptive thinking only for Claude models that support it', () => {
 		const { models } = toCustomEndpointModels(['claude-opus-5-5', 'claude-opus-4-5', 'claude-sonnet-4-5', 'gpt-6-sol'], 'http://localhost/v1');
 		const byId = new Map(models.map(model => [model.id, model]));

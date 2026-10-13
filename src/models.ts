@@ -255,6 +255,14 @@ const candidates: ModelCandidate[] = [
 		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 	{
+		// Input, thinking, and output share one 1M window.
+		id: ["gemini-4-argon"],
+		name: "Gemini 4 Argon",
+		class: "large",
+		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
+		capabilities: { toolCalling: true, imageInput: true, thinking: true },
+	},
+	{
 		id: ["gemini-3-pro", "gemini-3-pro-preview"],
 		name: "Gemini 3 Pro",
 		class: "large",
