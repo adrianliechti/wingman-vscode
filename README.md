@@ -40,7 +40,7 @@ Wingman chooses defaults for background tasks:
 
 | Setting | Used for | Preferred model |
 |---|---|---|
-| `chat.utilityModel` | General tasks such as titles and summaries | GPT 5.6 Terra |
+| `chat.utilityModel` | General tasks such as titles and summaries | GPT 6.1 Terra |
 | `chat.utilitySmallModel` | Lightweight tasks such as commit messages and rename suggestions | GPT 6 Luna |
 
 If a preferred model is unavailable, Wingman chooses another supported model. Both settings may use the same model.
@@ -53,12 +53,15 @@ Only supported models available on your backend appear in the picker.
 
 [GPT 6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) supports a 1.05M-token context window, up to 128K output tokens, image input, tool use, and reasoning. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`.
 
+[GPT 6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) supports a 1.05M-token context window, up to 128K output tokens, image input, tool use, and reasoning. Its **Thinking Effort** options are `none`, `low`, `medium`, `high`, `xhigh`, and `max`.
+
 [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) supports a 1M-token context window, up to 128K output tokens, image input, tool use, and adaptive thinking. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`.
 
 | Chat Model | Model IDs |
 |---|---|
 | GPT 6 Astra | `gpt-6-astra` |
 | GPT 6.1 Sol | `gpt-6.1-sol` |
+| GPT 6.1 Terra | `gpt-6.1-terra` |
 | GPT 6 Sol | `gpt-6-sol` |
 | GPT 6 Luna | `gpt-6-luna` |
 | GPT 5.6 Sol | `gpt-5.6-sol`, `gpt-5.6` |

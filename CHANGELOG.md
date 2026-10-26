@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [Unreleased]
+
+- Added GPT 6.1 Terra with a 1.05M-token context window, 128K output tokens, vision, tool use, and reasoning effort from `none` through `max`.
+- Prefer GPT 6.1 Terra for general utility tasks when available, preserving existing user selections.
+
 ## [0.3.11] - 2026-09-29
 
 - Added GPT 6.1 Sol with a 1.05M-token context window, 128K output tokens, vision, tool use, and reasoning effort from `low` through `max`.

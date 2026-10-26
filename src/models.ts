@@ -130,6 +130,15 @@ const candidates: ModelCandidate[] = [
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 	{
+		id: ["gpt-6.1-terra"],
+		name: "GPT 6.1 Terra",
+		class: "medium",
+		apiType: "responses",
+		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["gpt-6-sol"],
 		name: "GPT 6 Sol",
 		class: "large",
