@@ -4,10 +4,19 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
-## [Unreleased]
+## [0.3.13] - 2026-10-27
 
 - Added GPT 6.1 Terra with a 1.05M-token context window, 128K output tokens, vision, tool use, and reasoning effort from `none` through `max`.
 - Prefer GPT 6.1 Terra for general utility tasks when available, preserving existing user selections.
+- Added Gemini 4 Argon with a shared 1M-token context window, 64K output tokens, vision, tool use, and thinking.
+- Updated build dependencies and TypeScript configuration for TypeScript 6.0.
+- Production builds and VSIX packaging now check types and lint before bundling.
+- Fixed the debugger's pre-launch build task waiting for TypeScript watch output from esbuild.
+- Keep VS Code API typings aligned with the minimum supported version, 1.134.
+
+## [0.3.12] - 2026-10-11
+
+- Added Haiku 5.5 with a 1M-token context window, 128K output tokens, vision, tool use, and adaptive thinking.
 
 ## [0.3.11] - 2026-09-29
 

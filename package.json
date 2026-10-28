@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -49,9 +49,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "compile": "node esbuild.mjs",
+    "compile": "npm run check-types && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "build": "node esbuild.mjs --production",
+    "build": "npm run check-types && npm run lint && node esbuild.mjs --production",
+    "check-types": "tsc --noEmit -p ./",
     "pretest": "tsc -p ./ && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
@@ -59,15 +60,15 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "^24.13.3",
-    "@types/vscode": "^1.134.0",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
-    "@typescript-eslint/parser": "^8.65.0",
+    "@types/node": "^24.19.2",
+    "@types/vscode": "~1.134.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
-    "esbuild": "^0.28.1",
-    "eslint": "^10.8.0",
-    "typescript": "^5.9.3"
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
+    "typescript": "~6.0.3"
   }
 }

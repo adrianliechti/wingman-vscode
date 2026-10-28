@@ -16,6 +16,8 @@ Use models from your [Wingman AI Platform](https://github.com/adrianliechti/wing
 
 Models sync automatically when VS Code starts. Run **Wingman: Sync Models** again after changing your connection settings or the models available on your backend.
 
+On recent VS Code releases, using Wingman models in **Copilot harness** sessions also requires enabling `chat.agentHost.byokModels.enabled` (experimental). See [VS Code's BYOK documentation](https://code.visualstudio.com/docs/agent-customization/language-models#bring-your-own-language-model-key).
+
 ## Features
 
 - Choose from OpenAI, Anthropic, Gemini, and other supported models available through your backend.
@@ -74,6 +76,7 @@ Only supported models available on your backend appear in the picker.
 | GPT 5.1 | `gpt-5.1` |
 | Codex 5.3 | `gpt-5.3-codex` |
 | Codex 5.2 | `gpt-5.2-codex` |
+| Gemini 4 Argon | `gemini-4-argon` |
 | Gemini 3.5 Flash | `gemini-3.5-flash` |
 | Gemini 3.1 Pro | `gemini-3.1-pro`, `gemini-3.1-pro-preview` |
 | Gemini 3 Pro | `gemini-3-pro`, `gemini-3-pro-preview` |
@@ -89,6 +92,7 @@ Only supported models available on your backend appear in the picker.
 | Sonnet 5 | `claude-sonnet-5` |
 | Sonnet 4.6 | `claude-sonnet-4-6` |
 | Sonnet 4.5 | `claude-sonnet-4-5` |
+| Haiku 5.5 | `claude-haiku-5-5` |
 | Haiku 4.6 | `claude-haiku-4-6` |
 | Haiku 4.5 | `claude-haiku-4-5` |
 | Devstral Medium | `devstral-medium`, `devstral-medium-latest`, `devstral-latest`, `devstral` |
