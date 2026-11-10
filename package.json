@@ -34,7 +34,7 @@
         "wingman.apiKey": {
           "type": "string",
           "default": "-",
-          "description": "API key sent to the Wingman backend. Stored in plain settings, so keep the default for a local backend without authentication.",
+          "description": "API key for model discovery and chat requests to the Wingman backend. Run Wingman: Sync Models after changing it. Stored in plain settings, so keep the default for a local backend without authentication.",
           "scope": "machine"
         }
       }

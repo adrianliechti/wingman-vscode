@@ -288,6 +288,15 @@ const candidates: ModelCandidate[] = [
 
 	// Claude models
 	{
+		id: ["claude-fable-5-2"],
+		name: "Fable 5.2",
+		class: "large",
+		apiType: "messages",
+		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
 		id: ["claude-fable-5-1"],
 		name: "Fable 5.1",
 		class: "large",

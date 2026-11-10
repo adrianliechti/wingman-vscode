@@ -34,7 +34,7 @@ On recent VS Code releases, using Wingman models in **Copilot harness** sessions
 
 For a local backend without authentication, keep the default API key.
 
-To change a saved API key, update `wingman.apiKey`, then run **Open Language Models File** from the Command Palette, remove the **Wingman** group, and run **Wingman: Sync Models** again.
+To change your API key, update `wingman.apiKey`, then run **Wingman: Sync Models**. Sync updates both model discovery and the saved credential used by VS Code for chat requests. You can also restart VS Code to apply the change.
 
 ### Utility models
 
@@ -59,6 +59,8 @@ Only supported models available on your backend appear in the picker.
 
 [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) supports a 1M-token context window, up to 128K output tokens, image input, tool use, and adaptive thinking. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`.
 
+[Fable 5.2](https://platform.claude.com/docs/en/models/fable-5-2/overview) supports a 1M-token context window, up to 128K output tokens, image input, tool use, and always-on adaptive thinking. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`. Anthropic requires 30-day data retention unless expressly authorized otherwise.
+
 | Chat Model | Model IDs |
 |---|---|
 | GPT 6 Astra | `gpt-6-astra` |
@@ -81,6 +83,7 @@ Only supported models available on your backend appear in the picker.
 | Gemini 3.1 Pro | `gemini-3.1-pro`, `gemini-3.1-pro-preview` |
 | Gemini 3 Pro | `gemini-3-pro`, `gemini-3-pro-preview` |
 | Gemini 3 Flash | `gemini-3-flash`, `gemini-3-flash-preview` |
+| Fable 5.2 | `claude-fable-5-2` |
 | Fable 5.1 | `claude-fable-5-1` |
 | Opus 5.5 | `claude-opus-5-5` |
 | Opus 5 | `claude-opus-5` |

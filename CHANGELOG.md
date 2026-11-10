@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [Unreleased]
+
+- Added Fable 5.2 with a 1M-token context window, 128K output tokens, vision, tool use, and adaptive thinking with effort from `low` through `max`.
+- Sync API key changes to VS Code's saved Wingman chat credential, including when the available models have not changed.
+
 ## [0.3.13] - 2026-10-27
 
 - Added GPT 6.1 Terra with a 1.05M-token context window, 128K output tokens, vision, tool use, and reasoning effort from `none` through `max`.

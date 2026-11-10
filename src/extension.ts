@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'node:crypto';
 
 import { toCustomEndpointModels, CustomEndpointModel } from './models';
 import { UtilityModelDefaults } from './utilityModels';
@@ -6,6 +7,15 @@ import { UtilityModelDefaults } from './utilityModels';
 const groupName = 'Wingman';
 const groupVendor = 'customendpoint';
 const syncHintShownKey = 'wingman.syncHintShown';
+const syncedApiKeySecret = 'wingman.syncedApiKey';
+
+type LanguageModelGroup = {
+	name: string;
+	vendor: string;
+	apiKey?: unknown;
+	apiType?: string;
+	models?: CustomEndpointModel[];
+};
 
 let pendingSync: Promise<void> = Promise.resolve();
 
@@ -58,14 +68,15 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 			throw new Error('The Wingman backend reported no supported models.');
 		}
 
-		const { found, updated } = await updateGroupFiles(context, models, logger);
+		const { found, updated } = await updateGroupFiles(context, models, apiKey, logger);
 
-		// The migration command stores the API key as a new secret before it
-		// rejects a duplicate group, so probing it on every startup would
-		// leave an orphaned secret behind each time. Seed only when no profile
-		// holds the group yet, or on explicit request so a profile that lacks
-		// the group while another profile has it can still be seeded.
-		const seeded = (found === 0 || interactive) && await seedGroup(apiKey, models);
+		// A manual sync also seeds the current profile if only other profiles
+		// contain Wingman. Omit the key when probing an existing installation:
+		// the command creates a secret even when it rejects a duplicate group.
+		const seeded = (found === 0 || interactive) && await seedGroup(context, found === 0 ? apiKey : undefined, models);
+		if (seeded && found > 0) {
+			await updateGroupFiles(context, models, apiKey, logger);
+		}
 
 		if (found === 0 && !seeded) {
 			// The group exists (migration refused to add it again) but no
@@ -125,7 +136,7 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
  * true if the group was newly created, false if it already existed — the
  * command is strictly add-only and rejects a second registration.
  */
-async function seedGroup(apiKey: string, models: CustomEndpointModel[]): Promise<boolean> {
+async function seedGroup(context: vscode.ExtensionContext, apiKey: string | undefined, models: CustomEndpointModel[]): Promise<boolean> {
 	try {
 		// Group-level fallback only — every model carries an explicit apiType:
 		// "responses" for OpenAI, "messages" for Anthropic, "chat-completions"
@@ -137,7 +148,6 @@ async function seedGroup(apiKey: string, models: CustomEndpointModel[]): Promise
 			apiType: 'chat-completions',
 			models,
 		});
-		return true;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (!message.includes('already exists')) {
@@ -145,40 +155,84 @@ async function seedGroup(apiKey: string, models: CustomEndpointModel[]): Promise
 		}
 		return false;
 	}
+
+	// Remember the native credential created on first install so the next
+	// sync can reuse it instead of creating a second one.
+	if (apiKey !== undefined) {
+		for (const uri of await languageModelsFiles(context)) {
+			const group = (await readGroups(uri))?.find(isWingmanGroup);
+			if (isApiKeyReference(group?.apiKey)) {
+				await context.secrets.store(syncedApiKeySecret, JSON.stringify({ apiKey, reference: group.apiKey }));
+				break;
+			}
+		}
+	}
+	return true;
+}
+
+function isWingmanGroup(group: LanguageModelGroup): boolean {
+	return group?.vendor === groupVendor && group?.name === groupName;
+}
+
+function isApiKeyReference(value: unknown): value is string {
+	return typeof value === 'string' && /^\$\{input:chat\.lm\.secret\.[^}]+\}$/.test(value);
+}
+
+async function readGroups(uri: vscode.Uri): Promise<LanguageModelGroup[] | undefined> {
+	try {
+		const groups: unknown = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)));
+		if (!Array.isArray(groups)) {
+			throw new Error('Language model configuration must be an array.');
+		}
+		return groups;
+	} catch (error) {
+		if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+			return undefined;
+		}
+		throw error;
+	}
 }
 
 /**
  * Rewrites the Wingman group in every chatLanguageModels.json that contains
  * it. The core "lm.*" commands can only add a provider group, never modify
  * one, so updates edit the files directly — VS Code watches them and
- * hot-reloads changed groups. Only apiType and models are replaced; the
- * stored apiKey is a "${input:chat.lm.secret.*}" reference into VS Code's
- * secret storage and a plaintext value there would break authentication.
+ * hot-reloads changed groups. The API key must remain a reference to VS
+ * Code's secret storage: a plaintext value would break authentication.
  */
-async function updateGroupFiles(context: vscode.ExtensionContext, models: CustomEndpointModel[], logger: vscode.LogOutputChannel): Promise<{ found: number, updated: number }> {
+async function updateGroupFiles(context: vscode.ExtensionContext, models: CustomEndpointModel[], apiKey: string, logger: vscode.LogOutputChannel): Promise<{ found: number, updated: number }> {
 	let found = 0;
 	let updated = 0;
+	const failures: string[] = [];
+	const files = await languageModelsFiles(context);
+	let apiKeyReference: string | undefined;
 
-	for (const uri of await languageModelsFiles(context)) {
+	for (const uri of files) {
 		try {
-			const groups: unknown = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)));
-
-			if (!Array.isArray(groups)) {
-				continue;
-			}
-
-			const group = groups.find(g => g?.vendor === groupVendor && g?.name === groupName);
+			let groups = await readGroups(uri);
+			let group = groups?.find(isWingmanGroup);
 
 			if (!group) {
 				continue;
 			}
 
 			found++;
+			if (!apiKeyReference) {
+				apiKeyReference = await languageModelApiKey(context, apiKey);
+				// Creating the credential edits the current profile. Read it again
+				// so this write preserves changes made while the command ran.
+				groups = await readGroups(uri);
+				group = groups?.find(isWingmanGroup);
+				if (!group) {
+					throw new Error('Wingman group was removed during sync.');
+				}
+			}
 
-			if (group.apiType === 'chat-completions' && JSON.stringify(group.models) === JSON.stringify(models)) {
+			if (group.apiKey === apiKeyReference && group.apiType === 'chat-completions' && JSON.stringify(group.models) === JSON.stringify(models)) {
 				continue;
 			}
 
+			group.apiKey = apiKeyReference;
 			group.apiType = 'chat-completions';
 			group.models = models;
 
@@ -186,14 +240,63 @@ async function updateGroupFiles(context: vscode.ExtensionContext, models: Custom
 			logger.info('Updated language model group in', uri.fsPath);
 			updated++;
 		} catch (error) {
-			if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-				continue;
-			}
 			logger.warn(`Could not update ${uri.fsPath}:`, error instanceof Error ? error.message : String(error));
+			failures.push(uri.fsPath);
 		}
 	}
 
+	if (failures.length > 0) {
+		throw new Error(`Could not update language model configuration: ${failures.join(', ')}`);
+	}
+
 	return { found, updated };
+}
+
+/**
+ * The core commands can create a secret but cannot replace one. Create an
+ * empty temporary group to obtain a native secret reference, then remove
+ * just that group from the file. Keep the key/reference pair in extension
+ * secret storage so unchanged syncs do not create more secrets.
+ */
+async function languageModelApiKey(context: vscode.ExtensionContext, apiKey: string): Promise<string> {
+	const saved = await context.secrets.get(syncedApiKeySecret);
+	if (saved) {
+		const cached = JSON.parse(saved) as { apiKey: string, reference: string };
+		if (cached.apiKey === apiKey && isApiKeyReference(cached.reference)) {
+			return cached.reference;
+		}
+	}
+
+	const name = `Wingman API key ${randomUUID()}`;
+	await vscode.commands.executeCommand('lm.addLanguageModelsProviderGroup', {
+		name,
+		vendor: groupVendor,
+		apiKey,
+		models: [],
+	});
+
+	// Re-enumerate in case the command created a profile's first model file.
+	for (const uri of await languageModelsFiles(context)) {
+		const groups = await readGroups(uri);
+		if (!groups) {
+			continue;
+		}
+		const index = groups.findIndex(group => group?.vendor === groupVendor && group?.name === name);
+		if (index === -1) {
+			continue;
+		}
+
+		const reference: unknown = groups[index].apiKey;
+		groups.splice(index, 1);
+		await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(groups, undefined, '\t')));
+		if (!isApiKeyReference(reference)) {
+			throw new Error('VS Code did not create a language model API key secret.');
+		}
+		await context.secrets.store(syncedApiKeySecret, JSON.stringify({ apiKey, reference }));
+		return reference;
+	}
+
+	throw new Error('Could not locate the language model API key configuration on this extension host.');
 }
 
 /**
