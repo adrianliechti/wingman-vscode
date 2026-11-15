@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.3.13",
+  "version": "0.4.0",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -36,6 +36,18 @@
           "default": "-",
           "description": "API key for model discovery and chat requests to the Wingman backend. Run Wingman: Sync Models after changing it. Stored in plain settings, so keep the default for a local backend without authentication.",
           "scope": "machine"
+        },
+        "wingman.agentHost.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start Wingman's AHP server for the first folder of a trusted local workspace and configure VS Code Chat automatically. Requires wingman-agent and a VS Code window that supports AHP host settings.",
+          "scope": "window"
+        },
+        "wingman.agentHost.executable": {
+          "type": "string",
+          "default": "wingman",
+          "description": "Wingman executable path or launcher command, such as /bin/devtool wingman. When not explicitly set, reads ~/.wingman/path, then falls back to wingman on PATH. Quote paths or arguments containing spaces in launcher commands. Appends server --no-browser automatically. Uses the agent's own provider configuration.",
+          "scope": "machine"
         }
       }
     },
@@ -43,6 +55,16 @@
       {
         "command": "wingman.syncModels",
         "title": "Sync Models",
+        "category": "Wingman"
+      },
+      {
+        "command": "wingman.startAgentHost",
+        "title": "Start Agent Host",
+        "category": "Wingman"
+      },
+      {
+        "command": "wingman.stopAgentHost",
+        "title": "Stop Agent Host",
         "category": "Wingman"
       }
     ]
@@ -56,6 +78,7 @@
     "pretest": "tsc -p ./ && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
+    "test:custom-endpoints": "npm run build && node scripts/test-custom-endpoints.cjs",
     "package": "vsce package"
   },
   "devDependencies": {

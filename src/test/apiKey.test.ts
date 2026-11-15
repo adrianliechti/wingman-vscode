@@ -29,6 +29,11 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 	let failGroupWrite = false;
 	let failedFile = defaultFile;
 	let currentFile = defaultFile;
+	let providerPresent = true;
+	let vendorAvailable = true;
+	let providerActivations = 0;
+	let onExtensionsChanged: (() => void) | undefined;
+	let onModelsChanged: (() => void) | undefined;
 	let onSecretCreation: (() => void) | undefined;
 
 	class FileSystemError extends Error { code = 'FileNotFound'; }
@@ -40,6 +45,10 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 		error: (...args: unknown[]) => logs.push(args),
 	};
 	const mockVscode = {
+		extensions: {
+			getExtension: () => providerPresent ? { activate: async () => { providerActivations++; } } : undefined,
+			onDidChange: (callback: () => void) => { onExtensionsChanged = callback; return disposable; },
+		},
 		FileSystemError,
 		FileType: { Directory: 2 },
 		Uri: { joinPath: (uri: Uri, ...parts: string[]) => ({ fsPath: path.posix.join(uri.fsPath, ...parts) }) },
@@ -50,7 +59,7 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 			showErrorMessage: async (message: string) => { messages.push(message); },
 		},
 		lm: {
-			onDidChangeChatModels: () => disposable,
+			onDidChangeChatModels: (callback: () => void) => { onModelsChanged = callback; return disposable; },
 			selectChatModels: async () => [],
 		},
 		workspace: {
@@ -79,6 +88,10 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 				return disposable;
 			},
 			executeCommand: async (command: string, group: Group) => {
+				assert.ok(providerActivations > 0, 'activate Copilot before configuring its provider');
+				if (!vendorAvailable) {
+					throw new Error('Vendor customendpoint not found.');
+				}
 				assert.ok(['lm.addLanguageModelsProviderGroup', 'lm.migrateLanguageModelsProviderGroup'].includes(command));
 				const groups: Group[] = JSON.parse(files.get(currentFile) ?? '[]');
 				const storedGroup = { ...group };
@@ -121,7 +134,9 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 		module: extensionModule, exports: extensionModule.exports,
 		require: (name: string) => name === 'vscode' ? mockVscode : name === './utilityModels'
 			? { UtilityModelDefaults: class { sync() { } dispose() { } } }
-			: localRequire(name),
+			: name === './agentHost'
+				? { WingmanAgentHost: class { configure() { } dispose() { } } }
+				: localRequire(name),
 		TextEncoder, TextDecoder, AbortSignal,
 		fetch: async (_url: string, options: { headers: { Authorization: string } }) => {
 			discoveryHeaders.push(options.headers.Authorization);
@@ -132,6 +147,10 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 
 	return {
 		files, state, messages, logs, discoveryHeaders, nativeSecrets,
+		set providerPresent(value: boolean) { providerPresent = value; },
+		set vendorAvailable(value: boolean) { vendorAvailable = value; },
+		extensionsChanged: () => onExtensionsChanged?.(),
+		modelsChanged: () => onModelsChanged?.(),
 		get secretCreations() { return secretCreations; },
 		set apiKey(value: string) { apiKey = value; },
 		set failSecretCreation(value: boolean) { failSecretCreation = value; },
@@ -153,6 +172,32 @@ function wingmanGroup(): Group {
 }
 
 suite('API key sync', () => {
+	test('reports missing Copilot separately from backend failures and retries when enabled', async () => {
+		const app = harness();
+		app.providerPresent = false;
+		await app.sync();
+		assert.strictEqual(app.discoveryHeaders.length, 0);
+		assert.strictEqual(app.secretCreations, 0);
+		assert.strictEqual(app.messages.length, 1, 'automatic startup should not display a backend warning');
+		assert.ok(app.messages[0].includes('Install or enable GitHub Copilot Chat'));
+		assert.ok(!app.messages[0].includes('Start your Wingman backend'));
+		app.providerPresent = true;
+		app.extensionsChanged();
+		await new Promise(resolve => setImmediate(resolve));
+		assert.strictEqual(app.secretCreations, 1, 'enabling Copilot automatically retries sync');
+	});
+
+	test('explains unavailable vendors and retries when models become available', async () => {
+		const app = harness();
+		app.vendorAvailable = false;
+		await app.sync();
+		assert.strictEqual(app.secretCreations, 0);
+		assert.ok(app.messages.some(message => message.includes('Enable GitHub Copilot Chat') && message.includes('policy')));
+		app.vendorAvailable = true;
+		app.modelsChanged();
+		await new Promise(resolve => setImmediate(resolve));
+		assert.strictEqual(app.secretCreations, 1);
+	});
 	test('rotates the chat credential when only the API key changes', async () => {
 		const app = harness();
 		await app.sync();

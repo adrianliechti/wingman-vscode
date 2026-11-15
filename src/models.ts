@@ -2,14 +2,17 @@
  * Reasoning effort levels offered in the "Thinking Effort" picker.
  *
  * Responses API models: forwarded verbatim as `reasoning.effort`. "none"
- * disables reasoning where supported. GPT-6 Astra, GPT-6.1 Sol, and the
- * Codex models below require at least "low". GPT-5.6+ add "max" above
+ * disables reasoning where supported. GPT-6 Astra and GPT-6.1 Sol
+ * require at least "low". GPT-5.6+ add "max" above
  * "xhigh" for the hardest quality-first workloads.
  *
  * Messages API models: forwarded verbatim as `output_config.effort`; Anthropic
  * accepts "low" | "medium" | "high" and, on selected models, "xhigh" and
  * "max". Disabling thinking is a separate `thinking.type` control, not an
  * effort level.
+ *
+ * Chat Completions models: forwarded as `reasoning_effort`. Wingman maps
+ * Gemini efforts to thinking levels; GLM 5.3 accepts "low", "high", "max".
  */
 type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -47,24 +50,19 @@ export type CustomEndpointModel = ModelLimits & {
 	thinking?: boolean;
 	adaptiveThinking?: boolean;
 	zeroDataRetentionEnabled?: boolean;
+	requestHeaders: Record<string, string>;
 	supportsReasoningEffort?: ReasoningEffort[];
 };
 
 /**
- * Token limits as the vendor documents them (cross-checked against
- * https://models.dev). Vendors that advertise a total context window shared
- * by input and output (OpenAI, Anthropic, GLM, Qwen) declare
- * `contextWindow`. Vendors that document an input-only limit (Gemini)
- * declare `maxInputTokens` verbatim.
+ * Shared context windows and output budgets. These follow published limits
+ * unless a smaller integration budget is explicitly documented below.
  *
  * {@link toModel} forwards them verbatim: the built-in provider treats
  * `contextWindow` as the source of truth and derives the output-reserved
- * input budget as `contextWindow - maxOutputTokens`; without it the window
- * is `maxInputTokens + maxOutputTokens`.
+ * input budget as `contextWindow - maxOutputTokens`.
  */
-type ModelLimits =
-	| { contextWindow: number; maxInputTokens?: never; maxOutputTokens: number }
-	| { contextWindow?: never; maxInputTokens: number; maxOutputTokens: number };
+type ModelLimits = { contextWindow: number; maxOutputTokens: number };
 
 interface ModelCapabilities {
 	toolCalling?: boolean;
@@ -79,9 +77,9 @@ interface ModelCapabilities {
 
 	/**
 	 * Whether a Messages API model supports adaptive thinking. The built-in
-	 * provider only sends a `thinking` config — and with it the chosen
-	 * `output_config.effort` — when this is set; otherwise thinking stays at
-	 * the model default and the effort picker has no effect.
+	 * provider sends an adaptive `thinking` config when the caller also enables
+	 * thinking. Otherwise the field is omitted, preserving the backend model's
+	 * default (adaptive thinking is on by default for Claude 5.x).
 	 */
 	adaptiveThinking?: boolean;
 }
@@ -103,7 +101,8 @@ interface ModelCandidate {
 	 * Reasoning effort levels this model accepts. When present, the built-in
 	 * provider renders a "Thinking Effort" picker and forwards the chosen
 	 * value as `reasoning.effort` (Responses API) or `output_config.effort`
-	 * (Messages API, only with `adaptiveThinking`).
+	 * (Messages API) or `reasoning_effort` (Chat Completions). An omitted
+	 * thinking config preserves the model's default.
 	 */
 	reasoningEffort?: ReasoningEffort[];
 }
@@ -183,122 +182,40 @@ const candidates: ModelCandidate[] = [
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
 	},
-	{
-		id: ["gpt-5.5"],
-		name: "GPT 5.5",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
-	},
-	{
-		id: ["gpt-5.4"],
-		name: "GPT 5.4",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
-	},
-	{
-		id: ["gpt-5.4-mini"],
-		name: "GPT 5.4 mini",
-		class: "small",
-		apiType: "responses",
-		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
-	},
-	{
-		id: ["gpt-5.2"],
-		name: "GPT 5.2",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high", "xhigh"],
-	},
-	{
-		id: ["gpt-5.1"],
-		name: "GPT 5.1",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["none", "low", "medium", "high"],
-	},
-
-	{
-		id: ["gpt-5.3-codex"],
-		name: "Codex 5.3",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh"],
-	},
-	{
-		id: ["gpt-5.2-codex"],
-		name: "Codex 5.2",
-		class: "medium",
-		apiType: "responses",
-		limits: { contextWindow: 400000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh"],
-	},
 
 	// Gemini models
+	// https://aistudio.google.com/docs/models
+	// Shared input/output windows with the synchronous output limit; long
+	// decode requires a separate API mode and is not used by this integration.
 	{
-		id: ["gemini-3.5-flash"],
-		name: "Gemini 3.5 Flash",
-		class: "medium",
-		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
-	},
-	{
-		id: ["gemini-3.1-pro", "gemini-3.1-pro-preview"],
-		name: "Gemini 3.1 Pro",
-		class: "large",
-		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
-	},
-	{
-		// Input, thinking, and output share one 1M window.
-		id: ["gemini-4-argon"],
-		name: "Gemini 4 Argon",
+		id: ["gemini-4-carbon"],
+		name: "Gemini 4 Carbon",
 		class: "large",
 		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high"],
 	},
 	{
-		id: ["gemini-3-pro", "gemini-3-pro-preview"],
-		name: "Gemini 3 Pro",
-		class: "large",
-		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
+		id: ["gemini-4-argon"],
+		name: "Gemini 4 Argon",
+		class: "medium",
+		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high"],
 	},
 	{
-		id: ["gemini-3-flash", "gemini-3-flash-preview"],
-		name: "Gemini 3 Flash",
+		id: ["gemini-4-hydrogen"],
+		name: "Gemini 4 Hydrogen",
 		class: "small",
-		limits: { maxInputTokens: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true, imageInput: true, thinking: true },
+		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh"],
 	},
 
 	// Claude models
 	{
 		id: ["claude-fable-5-2"],
 		name: "Fable 5.2",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-fable-5-1"],
-		name: "Fable 5.1",
 		class: "large",
 		apiType: "messages",
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
@@ -314,50 +231,6 @@ const candidates: ModelCandidate[] = [
 		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
-	{
-		id: ["claude-opus-5"],
-		name: "Opus 5",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-opus-4-8"],
-		name: "Opus 4.8",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-opus-4-7"],
-		name: "Opus 4.7",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-opus-4-6"],
-		name: "Opus 4.6",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "max"],
-	},
-	{
-		id: ["claude-opus-4-5"],
-		name: "Opus 4.5",
-		class: "large",
-		apiType: "messages",
-		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true },
-	},
 
 	{
 		id: ["claude-sonnet-5-5"],
@@ -367,49 +240,6 @@ const candidates: ModelCandidate[] = [
 		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
 		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-sonnet-5"],
-		name: "Sonnet 5",
-		class: "medium",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
-	},
-	{
-		id: ["claude-sonnet-4-6"],
-		name: "Sonnet 4.6",
-		class: "medium",
-		apiType: "messages",
-		limits: { contextWindow: 1000000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true, imageInput: true, adaptiveThinking: true },
-		reasoningEffort: ["low", "medium", "high", "max"],
-	},
-	{
-		id: ["claude-sonnet-4-5"],
-		name: "Sonnet 4.5",
-		class: "medium",
-		apiType: "messages",
-		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true },
-	},
-
-	{
-		id: ["claude-haiku-4-6"],
-		name: "Haiku 4.6",
-		class: "small",
-		apiType: "messages",
-		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true },
-	},
-	{
-		id: ["claude-haiku-4-5"],
-		name: "Haiku 4.5",
-		class: "small",
-		apiType: "messages",
-		limits: { contextWindow: 200000, maxOutputTokens: 64000 },
-		capabilities: { toolCalling: true, imageInput: true },
 	},
 
 	{
@@ -422,94 +252,89 @@ const candidates: ModelCandidate[] = [
 		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
 	},
 
-	// Devstral models
-	{
-		id: ["devstral-medium", "devstral-medium-latest", "devstral-latest", "devstral"],
-		name: "Devstral Medium",
-		class: "medium",
-		limits: { maxInputTokens: 262144, maxOutputTokens: 262144 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["devstral-small", "devstral-small-latest"],
-		name: "Devstral Small",
-		class: "small",
-		limits: { maxInputTokens: 128000, maxOutputTokens: 128000 },
-		capabilities: { toolCalling: true },
-	},
-
 	// GLM models
+	// https://docs.z.ai/guides/llm/glm-5.3
+	// https://docs.z.ai/guides/vlm/glm-5.3-flash
 	{
-		id: ["glm-5.1"],
-		name: "GLM 5.1",
+		id: ["glm-5.3"],
+		name: "GLM 5.3",
 		class: "medium",
-		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
+		limits: { contextWindow: 1048576, maxOutputTokens: 131072 },
 		capabilities: { toolCalling: true },
+		reasoningEffort: ["low", "high", "max"],
 	},
 	{
-		id: ["glm-5"],
-		name: "GLM 5",
-		class: "medium",
-		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["glm-4.7"],
-		name: "GLM 4.7",
-		class: "medium",
-		limits: { contextWindow: 204800, maxOutputTokens: 131072 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["glm-4.7-flash"],
-		name: "GLM 4.7 Flash",
+		id: ["glm-5.3-flash"],
+		name: "GLM 5.3 Flash",
 		class: "small",
-		limits: { contextWindow: 200000, maxOutputTokens: 131072 },
-		capabilities: { toolCalling: true },
+		limits: { contextWindow: 1048576, maxOutputTokens: 131072 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "high", "max"],
 	},
 
 	// Qwen models
+	// Curated Qwen 3.8 choices; snapshots and provider-qualified IDs are
+	// aliases, not additional picker entries. https://openrouter.ai/qwen
 	{
-		id: ["qwen3.7-max"],
-		name: "Qwen 3.7 Max",
+		id: ["qwen3.8-max", "qwen3.8-max-0902", "qwen3.8-max-2026-09-02", "qwen/qwen3.8-max-0902"],
+		name: "Qwen 3.8 Max",
 		class: "large",
-		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true },
+		limits: { contextWindow: 1000000, maxOutputTokens: 131072 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "xhigh"],
 	},
 	{
-		id: ["qwen3.6-plus", "qwen3.6"],
-		name: "Qwen 3.6",
-		class: "medium",
-		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["qwen3.6-flash"],
-		name: "Qwen 3.6 Flash",
+		id: ["qwen3.8-flash", "qwen/qwen3.8-flash"],
+		name: "Qwen 3.8 Flash",
 		class: "small",
-		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true },
+		limits: { contextWindow: 1000000, maxOutputTokens: 131072 },
+		// OpenRouter advertises reasoning but no discrete effort levels for Flash.
+		capabilities: { toolCalling: true, imageInput: true, thinking: true },
 	},
 	{
-		id: ["qwen3.5-plus", "qwen3.5"],
-		name: "Qwen 3.5",
-		class: "medium",
-		limits: { contextWindow: 1000000, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true },
+		id: ["qwen3.8-27b", "Qwen/Qwen3.8-27B", "qwen/qwen3.8-27b"],
+		name: "Qwen 3.8 27B",
+		class: "small",
+		// Use the native window for local deployments; 1M needs YaRN scaling.
+		// https://huggingface.co/Qwen/Qwen3.8-27B
+		limits: { contextWindow: 262144, maxOutputTokens: 131072 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "xhigh"],
+	},
+
+	// Thinking Machines models
+	{
+		id: ["inkling-2-small", "thinkingmachines/Inkling-2-Small", "thinkingmachines/inkling-2-small"],
+		name: "Inkling 2 Small",
+		class: "small",
+		// The model can decode across its shared 1M window. Reserve 128K for
+		// output here so Copilot retains most of the window for project context.
+		// https://huggingface.co/thinkingmachines/Inkling-2-Small
+		limits: { contextWindow: 1048576, maxOutputTokens: 131072 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "max"],
+	},
+
+	// Mistral models
+	// https://docs.mistral.ai/inference/conversations/reasoning
+	{
+		id: ["mistral-large-4", "mistral-large-4-0", "mistralai/mistral-large-4-0"],
+		name: "Mistral Large 4",
+		class: "large",
+		limits: { contextWindow: 1048576, maxOutputTokens: 262144 },
+		capabilities: { toolCalling: true, imageInput: true },
+		// Current GA levels replace the preview's none/high naming.
+		reasoningEffort: ["low", "medium", "high"],
 	},
 	{
-		id: ["qwen3-next", "qwen3"],
-		name: "Qwen 3",
-		class: "medium",
-		limits: { maxInputTokens: 126976, maxOutputTokens: 32768 },
-		capabilities: { toolCalling: true },
-	},
-	{
-		id: ["qwen3-coder-plus", "qwen3-coder-flash", "qwen3-coder-next", "qwen3-coder"],
-		name: "Qwen 3 Coder",
-		class: "medium",
-		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
-		capabilities: { toolCalling: true },
+		id: ["mistral-small-4", "mistral-small-2603", "mistralai/mistral-small-2603"],
+		name: "Mistral Small 4",
+		class: "small",
+		// Reserve 64K for output so most of the shared window remains usable
+		// for project context; this is an integration budget, not a model limit.
+		limits: { contextWindow: 262144, maxOutputTokens: 65536 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "high"],
 	},
 ];
 
@@ -560,6 +385,10 @@ function toModel(candidate: ModelCandidate, modelId: string, baseUrl: string): C
 		...candidate.limits,
 		thinking: candidate.capabilities?.thinking ?? (!!candidate.capabilities?.adaptiveThinking || !!candidate.reasoningEffort?.length),
 		zeroDataRetentionEnabled: true,
+		// Wingman's authentication expects Bearer credentials for every API,
+		// including Messages. Let VS Code interpolate its stored secret; never
+		// write the API key itself into the model configuration.
+		requestHeaders: { Authorization: 'Bearer ${apiKey}' },
 	};
 
 	if (candidate.capabilities?.adaptiveThinking) {

@@ -6,6 +6,20 @@ Reference: [Keep a Changelog](http://keepachangelog.com/)
 
 ## [Unreleased]
 
+Planned release: 0.4.0.
+
+- Detect the agent host's WebSocket URL directly in startup output, without requiring the `AHP endpoint:` label.
+- Discover the agent command from `~/.wingman/path`, with an explicit executable setting taking precedence and `wingman` on PATH as fallback. Support proxy launchers such as `/bin/devtool wingman` and quoted paths and arguments.
+- Remove GPT models older than 5.6, including Codex 5.2/5.3, and Claude models older than 5.5 except Fable 5.2. Update test fixtures to supported models.
+- Support only Gemini 4 Carbon, Argon, and Hydrogen, with shared 1M context windows, synchronous output limits, and model-specific thinking effort options.
+- Replace older GLM entries with GLM 5.3 and GLM 5.3 Flash, including 1M context windows, always-on reasoning effort options, and image input for Flash.
+- Remove Devstral and older Qwen entries. Curate Qwen support to 3.8 Max, Flash, and 27B, grouping known snapshots and provider-qualified aliases into one entry per model. Use 27B's native context window for local deployments.
+- Add Inkling 2 Small with image input, tool use, reasoning effort options, and a 1M context window with a 128K output budget.
+- Add Mistral Large 4 and Small 4 with native/OpenRouter aliases, image input, tool use, and current reasoning effort options. Large 4 uses a 1M context window and 256K output limit; Small 4 uses a 256K window with a 64K output budget.
+- Send Bearer authentication through Custom Endpoint request headers for all protocols, fixing authenticated Anthropic Messages requests to Wingman.
+- Activate Copilot before model sync, explain missing/disabled provider failures separately from gateway failures, and retry when providers become available.
+- Add an isolated VS Code/Copilot integration check for discovery, authentication, streaming, and tool-call continuations, with optional live gateway checks.
+- Automatically start Wingman's AHP server for trusted local projects and configure the available VS Code agent host setting. Add Start/Stop Agent Host commands, executable and auto-start settings, and cleanup that preserves existing host entries.
 - Added Fable 5.2 with a 1M-token context window, 128K output tokens, vision, tool use, and adaptive thinking with effort from `low` through `max`.
 - Sync API key changes to VS Code's saved Wingman chat credential, including when the available models have not changed.
 

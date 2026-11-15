@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { toCustomEndpointModels, CustomEndpointModel } from './models';
 import { UtilityModelDefaults } from './utilityModels';
+import { WingmanAgentHost } from './agentHost';
 
 const groupName = 'Wingman';
 const groupVendor = 'customendpoint';
@@ -18,15 +19,29 @@ type LanguageModelGroup = {
 };
 
 let pendingSync: Promise<void> = Promise.resolve();
+let agentHost: WingmanAgentHost | undefined;
+let waitingForModelProvider = false;
 
 export function activate(context: vscode.ExtensionContext) {
 	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
 	const utilityModels = new UtilityModelDefaults(groupVendor, logger);
+	agentHost = new WingmanAgentHost(context, logger);
+	const retryModelProvider = () => {
+		if (waitingForModelProvider) {
+			waitingForModelProvider = false;
+			void syncModels(context, logger, utilityModels, false);
+		}
+	};
 
 	context.subscriptions.push(
 		logger,
 		utilityModels,
+		agentHost,
 		vscode.commands.registerCommand('wingman.syncModels', () => syncModels(context, logger, utilityModels, true)),
+		vscode.commands.registerCommand('wingman.startAgentHost', () => agentHost?.start()),
+		vscode.commands.registerCommand('wingman.stopAgentHost', () => agentHost?.stop()),
+		vscode.extensions.onDidChange(retryModelProvider),
+		vscode.lm.onDidChangeChatModels(retryModelProvider),
 	);
 
 	// One-shot flag from older versions that made sync a write-once operation.
@@ -36,9 +51,10 @@ export function activate(context: vscode.ExtensionContext) {
 	// setting changes all reach the provider group. Unchanged state is
 	// detected against the stored group and not rewritten.
 	void syncModels(context, logger, utilityModels, false);
+	void agentHost.configure();
 }
 
-export function deactivate() { }
+export function deactivate() { return agentHost?.shutdown(); }
 
 function syncModels(context: vscode.ExtensionContext, logger: vscode.LogOutputChannel, utilityModels: UtilityModelDefaults, interactive: boolean): Promise<void> {
 	// The startup sync, the manual command and the retry button can overlap.
@@ -56,6 +72,7 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 	logger.info('Platform:', baseUrl);
 
 	try {
+		await activateModelProvider();
 		const { models, unmatched } = toCustomEndpointModels(await listModelIds(baseUrl, apiKey), baseUrl);
 
 		logger.info('Available models:', models.map(m => m.id).join(', ') || 'none');
@@ -107,13 +124,17 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 			void vscode.window.showInformationMessage(`Wingman: ${summary}`);
 		}
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+		let message = error instanceof Error ? error.message : String(error);
+		if (isModelProviderUnavailable(message)) {
+			waitingForModelProvider = true;
+			message = 'VS Code has not registered the Custom Endpoint provider. Enable GitHub Copilot Chat and check that BYOK models are allowed by your Copilot policy, then run Wingman: Sync Models.';
+		}
 
 		logger.error('Model sync failed:', message);
 
 		if (interactive) {
 			void vscode.window.showErrorMessage(`Wingman: model sync failed — ${message}`);
-		} else if (!context.globalState.get<boolean>(syncHintShownKey)) {
+		} else if (!waitingForModelProvider && !context.globalState.get<boolean>(syncHintShownKey)) {
 			// Surface the very first auto-sync failure so a fresh install
 			// is not a silent no-op; afterwards only the log channel reports.
 			void context.globalState.update(syncHintShownKey, true);
@@ -128,6 +149,25 @@ async function doSyncModels(context: vscode.ExtensionContext, logger: vscode.Log
 			});
 		}
 	}
+}
+
+async function activateModelProvider(): Promise<void> {
+	const copilot = vscode.extensions.getExtension('GitHub.copilot-chat');
+	if (!copilot) {
+		waitingForModelProvider = true;
+		throw new Error('Install or enable GitHub Copilot Chat (GitHub.copilot-chat) to use Wingman models in Copilot. The Wingman agent host can be used independently.');
+	}
+	try {
+		await copilot.activate();
+	} catch (error) {
+		waitingForModelProvider = true;
+		throw new Error(`Could not activate GitHub Copilot Chat: ${error instanceof Error ? error.message : String(error)}. Check its Output log, then retry Wingman: Sync Models.`);
+	}
+	waitingForModelProvider = false;
+}
+
+function isModelProviderUnavailable(message: string): boolean {
+	return message.includes('Vendor customendpoint not found') || message.includes('Chat model provider for vendor customendpoint is not registered');
 }
 
 /**
@@ -240,6 +280,9 @@ async function updateGroupFiles(context: vscode.ExtensionContext, models: Custom
 			logger.info('Updated language model group in', uri.fsPath);
 			updated++;
 		} catch (error) {
+			if (isModelProviderUnavailable(error instanceof Error ? error.message : String(error))) {
+				throw error; // Provider availability affects every profile; preserve the cause for retry.
+			}
 			logger.warn(`Could not update ${uri.fsPath}:`, error instanceof Error ? error.message : String(error));
 			failures.push(uri.fsPath);
 		}

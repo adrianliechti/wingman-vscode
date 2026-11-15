@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 src/**
+scripts/**
 out/**
 !out/extension.js
 node_modules/**
