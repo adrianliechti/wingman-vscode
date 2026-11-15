@@ -4,10 +4,10 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
-## [Unreleased]
+## [0.4.1] - 2026-11-15
 
-Planned release: 0.4.0.
-
+- Support the VS Code Agents window with one authenticated `wingman host` process for all projects, including startup without an open folder and continued operation across folder changes.
+- Fix renamed agent hosts failing to reconnect after a restart. Refresh the connection token and recreate VS Code's connection while preserving the custom name, other options, and user-owned entry on stop.
 - Detect the agent host's WebSocket URL directly in startup output, without requiring the `AHP endpoint:` label.
 - Discover the agent command from `~/.wingman/path`, with an explicit executable setting taking precedence and `wingman` on PATH as fallback. Support proxy launchers such as `/bin/devtool wingman` and quoted paths and arguments.
 - Remove GPT models older than 5.6, including Codex 5.2/5.3, and Claude models older than 5.5 except Fable 5.2. Update test fixtures to supported models.

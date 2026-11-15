@@ -50,6 +50,7 @@ Claude 5.x models use adaptive thinking by default when `thinking` is omitted. W
 1. Install `wingman-agent` and configure its provider following the [agent setup instructions](https://github.com/adrianliechti/wingman-agent#configure-your-provider). The extension discovers its command from `~/.wingman/path`, falling back to `wingman` on PATH. An explicitly set `wingman.agentHost.executable` takes precedence over the file.
 2. Open a trusted local project in a recent VS Code release with `chat.workspaceRemoteAgentHosts`. AHP requires at least VS Code 1.144; editor Chat integration requires the newer workspace host setting.
 3. The extension runs `wingman server --no-browser` in the project and registers the address reported by the server. Select **Wingman (your project)** in Chat, then choose an agent and model.
+4. In the Agents window, no project needs to be open: the extension runs `wingman host` once for every project. Select **Wingman**, then choose the folder of each session.
 
 The server uses port 9000 when available and chooses another port when needed, so separate windows can run separate hosts. In multi-root workspaces, the first folder is the server's project. The agent uses its own provider configuration; `wingman.baseUrl` and `wingman.apiKey` configure model sync only.
 
@@ -57,7 +58,7 @@ Both `~/.wingman/path` and the executable setting accept an executable path or a
 
 Wingman is registered only after the executable starts successfully and reports its AHP endpoint. If the binary is missing, automatic startup leaves the host lists untouched and logs the reason without displaying a notification.
 
-In an editor window, the connection is added to `chat.workspaceRemoteAgentHosts` in workspace settings (`.vscode/settings.json` or the `.code-workspace` file). In an Agents window with a local project folder, it uses `chat.remoteAgentHosts` in user settings instead. Existing hosts are preserved. Stopping the server or closing the window removes the extension's entry and restores the previous setting if it has not otherwise changed. VS Code manages the connection once the entry is registered.
+In an editor window, the connection is added to `chat.workspaceRemoteAgentHosts` in workspace settings (`.vscode/settings.json` or the `.code-workspace` file). In the Agents window, it uses `chat.remoteAgentHosts` in user settings instead, with a connection token that only that window's host accepts. Existing hosts are preserved. If an existing entry uses the new host's address, its token is refreshed while keeping its name and other options, so renamed hosts can reconnect after a restart. Stopping the server or closing the window removes the extension's entry and restores the previous setting if it has not otherwise changed. VS Code manages the connection once the entry is registered.
 
 Use **Wingman: Start Agent Host** to start or retry, and **Wingman: Stop Agent Host** to stop it for the current window. Set `wingman.agentHost.autoStart` to `false` to keep startup manual; changing it or the executable path stops the current server and applies the new preference. The extension stops its server on shutdown, so stop any active agent tasks before closing the window. SSH, WSL, Dev Container, and other remote workspaces are not yet supported for automatic server startup.
 

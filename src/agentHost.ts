@@ -1,17 +1,18 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { env } from 'node:process';
 
 const registrationKey = 'wingman.agentHost.registration';
 // Agents windows register both settings; editor windows register only the
 // workspace setting. Prefer the Agents-only setting when it is available.
 const hostSettings = ['remoteAgentHosts', 'workspaceRemoteAgentHosts'] as const;
 type HostSetting = typeof hostSettings[number];
-type HostEntry = { address: string, name: string };
+type HostEntry = { address: string, name: string, connectionToken?: string };
 type AgentCommand = { executable: string, args: string[] };
 type Registration = {
 	setting: HostSetting;
@@ -21,9 +22,13 @@ type Registration = {
 	writtenHash: string;
 };
 
-/** Owns one server for the first workspace folder and only its own host entry. */
+/**
+ * Owns one server and only its own host entry. An editor window's server is
+ * for its first folder; the Agents window's serves every project.
+ */
 export class WingmanAgentHost implements vscode.Disposable {
 	private child?: ChildProcess;
+	private shared = false;
 	private pending: Promise<void> = Promise.resolve();
 	private generation = 0;
 	private disposed = false;
@@ -33,7 +38,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 	constructor(private readonly context: vscode.ExtensionContext, private readonly logger: vscode.LogOutputChannel) {
 		this.listeners = [
 			vscode.workspace.onDidGrantWorkspaceTrust(() => { void this.configure(); }),
-			vscode.workspace.onDidChangeWorkspaceFolders(() => { void this.configure(); }),
+			// The Agents window's folder follows the focused session; its host stays.
+			vscode.workspace.onDidChangeWorkspaceFolders(() => { if (!this.shared) { void this.configure(); } }),
 			vscode.workspace.onDidChangeConfiguration(event => {
 				if (event.affectsConfiguration('wingman.agentHost') || event.affectsConfiguration('chat.remoteAgentHostsEnabled') || event.affectsConfiguration('chat.disableAIFeatures')) {
 					void this.configure();
@@ -108,10 +114,6 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (!vscode.workspace.isTrusted) {
 			throw new Error('Trust this workspace before starting the agent host.');
 		}
-		const folder = vscode.workspace.workspaceFolders?.[0];
-		if (!folder || folder.uri.scheme !== 'file' || vscode.env.remoteName) {
-			throw new Error('Open a local project folder to start the agent host. Remote workspaces are not supported yet.');
-		}
 		const chat = vscode.workspace.getConfiguration('chat');
 		const [major, minor] = vscode.version.split('.').map(Number);
 		if (major < 1 || (major === 1 && minor < 144)) {
@@ -122,6 +124,11 @@ export class WingmanAgentHost implements vscode.Disposable {
 		const setting = hostSettings.find(key => chat.inspect(key)?.defaultValue !== undefined);
 		if (!setting) {
 			throw new Error('This VS Code window does not support AHP host configuration. Update VS Code to a release with chat.workspaceRemoteAgentHosts, or use the Agents window.');
+		}
+		const shared = this.shared = setting === 'remoteAgentHosts';
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		if (vscode.env.remoteName || !shared && (!folder || folder.uri.scheme !== 'file')) {
+			throw new Error('Open a local project folder to start the agent host. Remote workspaces are not supported yet.');
 		}
 		if (chat.get('remoteAgentHostsEnabled') === false || chat.get('disableAIFeatures') === true) {
 			throw new Error('Agent host connections are disabled in VS Code settings.');
@@ -135,15 +142,18 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (this.disposed || generation !== this.generation) {
 			return;
 		}
-		// No shell and no fixed port: Wingman chooses 9000 or an available port
-		// and reports the actual endpoint. Each window owns its own process.
-		const child = spawn(command.executable, [...command.args, 'server', '--no-browser'], {
-			cwd: folder.uri.fsPath,
+		// No shell and no fixed port: Wingman chooses its default or an available
+		// port and reports the actual endpoint. Each window owns its own process.
+		// A host for every project only accepts this window's token.
+		const token = shared ? randomBytes(24).toString('base64url') : undefined;
+		const child = spawn(command.executable, [...command.args, ...(shared ? ['host'] : ['server', '--no-browser'])], {
+			cwd: shared ? homedir() : folder!.uri.fsPath,
+			env: token ? { ...env, WINGMAN_HOST_TOKEN: token } : undefined,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
 		this.child = child;
-		this.logger.info('Starting Wingman agent host in', folder.uri.fsPath);
+		this.logger.info('Starting Wingman agent host', shared ? 'for all projects' : `in ${folder!.uri.fsPath}`);
 		this.startupAbort = new AbortController();
 		let endpoint: string;
 		try {
@@ -154,7 +164,9 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (this.disposed || generation !== this.generation) {
 			return;
 		}
-		await this.register(setting, { address: endpoint, name: `Wingman (${folder.name})` });
+		await this.register(setting, shared
+			? { address: endpoint, name: 'Wingman', connectionToken: token }
+			: { address: endpoint, name: `Wingman (${folder!.name})` });
 		this.logger.info('Configured Wingman agent host:', endpoint);
 	}
 
@@ -234,6 +246,21 @@ export class WingmanAgentHost implements vscode.Disposable {
 			throw new Error(`chat.${setting} must be an array.`);
 		}
 		if (entries.some(value => isSameAddress(value, entry.address))) {
+			if (entry.connectionToken) {
+				// This process owns the endpoint, so an existing connection needs
+				// its new token. Preserve the user's name and other options.
+				const updated = entries.map(value => isSameAddress(value, entry.address)
+					? { ...value, connectionToken: entry.connectionToken } : value);
+				// VS Code keeps the token in its live connection. Remove the address
+				// first so it creates a new connection instead of retrying the old token.
+				await config.update(setting, entries.filter(value => !isSameAddress(value, entry.address)), target);
+				try {
+					await config.update(setting, updated, target);
+				} catch (error) {
+					await config.update(setting, previous, target);
+					throw error;
+				}
+			}
 			return; // A user-owned connection must never become ours to remove.
 		}
 		const written = [...entries, entry];
@@ -341,7 +368,7 @@ async function parseCommand(value: string): Promise<AgentCommand> {
 	return { executable, args };
 }
 
-function isSameAddress(value: unknown, address: string): boolean {
+function isSameAddress(value: unknown, address: string): value is { address: string } {
 	return typeof value === 'object' && value !== null && 'address' in value && typeof value.address === 'string'
 		&& value.address.replace(/^ws:\/\//, '') === address.replace(/^ws:\/\//, '');
 }

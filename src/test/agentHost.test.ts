@@ -30,7 +30,7 @@ class FakeChild extends EventEmitter {
 	}
 }
 
-function harness(options: { setting?: string, bothSettings?: boolean, supported?: boolean, trusted?: boolean, remote?: string, version?: string, autoStart?: boolean, startup?: 'error' | 'exit' | 'wait', recordedCommand?: string | Promise<string>, executables?: string[] } = {}) {
+function harness(options: { setting?: string, bothSettings?: boolean, supported?: boolean, trusted?: boolean, remote?: string, version?: string, autoStart?: boolean, startup?: 'error' | 'exit' | 'wait', port?: number, failUpdate?: number, recordedCommand?: string | Promise<string>, executables?: string[] } = {}) {
 	const setting = options.setting ?? editorSetting;
 	const global = new Map<string, unknown>([[setting, [otherHost]]]);
 	const workspace = new Map<string, unknown>();
@@ -72,6 +72,9 @@ function harness(options: { setting?: string, bothSettings?: boolean, supported?
 				update: async (key: string, value: unknown, target: number) => {
 					assert.strictEqual(key, setting, 'must not write unsupported host settings');
 					writes.push({ key, target, value });
+					if (writes.length === options.failUpdate) {
+						throw new Error('Simulated settings write failure');
+					}
 					const store = target === 1 ? global : workspace;
 					if (value === undefined) {
 						store.delete(key);
@@ -102,6 +105,9 @@ function harness(options: { setting?: string, bothSettings?: boolean, supported?
 			}
 			if (name === 'node:os') {
 				return { homedir: () => '/users/test' };
+			}
+			if (name === 'node:process') {
+				return { env: { PATH: '/bin' } };
 			}
 			if (name === 'node:fs') {
 				return { constants };
@@ -140,7 +146,7 @@ function harness(options: { setting?: string, bothSettings?: boolean, supported?
 						child.emit('exit', 1, null);
 					} else if (startup !== 'wait') {
 						child.stderr.emit('data', 'Starting...\nAHP end');
-						child.stderr.emit('data', `point: ws://localhost:${9100 + children.length}/ahp\n`);
+						child.stderr.emit('data', `point: ws://localhost:${options.port ?? 9100 + children.length}/ahp\n`);
 					}
 				});
 				return child;
@@ -312,6 +318,28 @@ suite('Wingman agent host lifecycle', () => {
 		assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost]);
 	});
 
+	test('the Agents window runs one host for all projects, without a folder and across folder changes', async () => {
+		const h = app({ setting: agentsSetting, bothSettings: true });
+		h.vscode.workspace.workspaceFolders = [];
+		await h.host.configure();
+		const { env, ...options } = h.spawns[0].options as { env: Record<string, string> };
+		assert.deepStrictEqual(normalize({ ...h.spawns[0], options }), {
+			executable: '/Applications/Wingman Tools/wingman', args: ['host'],
+			options: { cwd: '/users/test', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+		});
+		assert.strictEqual(env.PATH, '/bin');
+		assert.match(env.WINGMAN_HOST_TOKEN, /^[\w-]{32}$/);
+		assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost, { address: 'ws://localhost:9101/ahp', name: 'Wingman', connectionToken: env.WINGMAN_HOST_TOKEN }]);
+		// The folder follows the focused session; the host and its sessions stay.
+		h.vscode.workspace.workspaceFolders = [{ name: 'other', uri: { scheme: 'vscode-agent-host', fsPath: '/elsewhere' } }];
+		h.listeners.get('folders')!();
+		await h.host.start();
+		assert.strictEqual(h.spawns.length, 1);
+		assert.deepStrictEqual(h.children[0].kills, []);
+		await h.host.stop();
+		assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost]);
+	});
+
 	test('keeps edits to other hosts during cleanup and preserves renamed owned entries', async () => {
 		const h = app();
 		await h.host.start();
@@ -333,6 +361,56 @@ suite('Wingman agent host lifecycle', () => {
 		await h.host.start();
 		await h.host.stop();
 		assert.strictEqual(h.writes.length, 0);
+	});
+
+	test('refreshes a renamed Agents host token across restarts without taking ownership', async () => {
+		const h = app({ setting: agentsSetting, port: 9100 });
+		await h.host.start();
+		let entry = (h.global.get(agentsSetting) as typeof otherHost[])[1];
+		entry = { ...entry, name: 'My Wingman' };
+		h.global.set(agentsSetting, [otherHost, entry]);
+		await h.host.stop();
+		assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost, entry]);
+
+		for (let restart = 0; restart < 2; restart++) {
+			const oldToken = entry.connectionToken;
+			await h.host.start();
+			const { env } = h.spawns[h.spawns.length - 1].options as { env: Record<string, string> };
+			assert.notStrictEqual(env.WINGMAN_HOST_TOKEN, oldToken);
+			entry = { ...entry, connectionToken: env.WINGMAN_HOST_TOKEN };
+			assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost, entry]);
+			assert.deepStrictEqual(normalize(h.writes[h.writes.length - 2].value), [otherHost], 'disconnect before reconnecting with the new token');
+			assert.strictEqual(h.state.get(ownedKey), undefined, 'a renamed entry remains user-owned');
+			await h.host.stop();
+			assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost, entry]);
+		}
+	});
+
+	test('updates missing and stale tokens on pre-existing Agents entries while preserving their options', async () => {
+		for (const connectionToken of [undefined, 'stale-token']) {
+			const h = app({ setting: agentsSetting });
+			const existing = { address: 'localhost:9101/ahp', name: 'My host', connectionToken, customOption: 'keep-me' };
+			h.global.set(agentsSetting, [otherHost, existing]);
+			await h.host.start();
+			const { env } = h.spawns[0].options as { env: Record<string, string> };
+			const expected = [otherHost, { ...existing, connectionToken: env.WINGMAN_HOST_TOKEN }];
+			assert.deepStrictEqual(h.global.get(agentsSetting), expected);
+			assert.strictEqual(h.state.get(ownedKey), undefined);
+			await h.host.stop();
+			assert.deepStrictEqual(h.global.get(agentsSetting), expected);
+		}
+	});
+
+	test('restores user entries and reports failure when refreshing a token cannot be saved', async () => {
+		const h = app({ setting: agentsSetting, failUpdate: 2 });
+		const existing = { address: 'localhost:9101/ahp', name: 'My host', connectionToken: 'keep-me' };
+		h.global.set(agentsSetting, [otherHost, existing]);
+		await h.host.start();
+		assert.deepStrictEqual(h.global.get(agentsSetting), [otherHost, existing]);
+		assert.strictEqual(h.state.get(ownedKey), undefined);
+		assert.ok(h.children[0].kills.includes('SIGTERM'));
+		assert.strictEqual(h.messages.length, 1);
+		assert.ok(h.messages[0].includes('Simulated settings write failure'));
 	});
 
 	test('recovers a stale registration before starting a new server', async () => {
