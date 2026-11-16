@@ -25,7 +25,7 @@ let waitingForModelProvider = false;
 export function activate(context: vscode.ExtensionContext) {
 	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
 	const utilityModels = new UtilityModelDefaults(groupVendor, logger);
-	agentHost = new WingmanAgentHost(context, logger);
+	agentHost = new WingmanAgentHost(logger);
 	const retryModelProvider = () => {
 		if (waitingForModelProvider) {
 			waitingForModelProvider = false;

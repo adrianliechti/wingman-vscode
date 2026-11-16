@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -45,13 +45,13 @@
         "wingman.agentHost.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Start Wingman's AHP server and configure VS Code Chat automatically: for the first folder of a trusted local workspace, or one host for all projects in the Agents window. Requires wingman-agent and a VS Code window that supports AHP host settings.",
+          "description": "Start Wingman's shared AHP host on port 9100 and register it in user settings for VS Code Chat and the Agents window. The first window runs the host and the others use it. Turning this off stops the host in every window. Requires wingman-agent and a VS Code window that supports AHP host settings.",
           "scope": "window"
         },
         "wingman.agentHost.executable": {
           "type": "string",
           "default": "wingman",
-          "description": "Wingman executable path or launcher command, such as /bin/devtool wingman. When not explicitly set, reads ~/.wingman/path, then falls back to wingman on PATH. Quote paths or arguments containing spaces in launcher commands. Appends server --no-browser automatically. Uses the agent's own provider configuration.",
+          "description": "Wingman executable path or launcher command, such as /bin/devtool wingman. When not explicitly set, reads ~/.wingman/path, then falls back to wingman on PATH. Quote paths or arguments containing spaces in launcher commands. Appends host --port 9100 automatically. Uses the agent's own provider configuration.",
           "scope": "machine"
         }
       }

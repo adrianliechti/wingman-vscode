@@ -1,74 +1,79 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, readFile, stat } from 'node:fs/promises';
+import { get } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { env } from 'node:process';
 
-const registrationKey = 'wingman.agentHost.registration';
-// Agents windows register both settings; editor windows register only the
-// workspace setting. Prefer the Agents-only setting when it is available.
+// Every window shares one local host at a fixed address, so each window writes
+// the same entry to user settings, never to the workspace.
+const hostPort = 9100;
+const hostAddress = `ws://localhost:${hostPort}/ahp`;
+const hostName = 'Wingman';
+const watchInterval = 5_000;
+// The Agents window registers both settings but reads remoteAgentHosts; editor
+// windows register and read only workspaceRemoteAgentHosts.
 const hostSettings = ['remoteAgentHosts', 'workspaceRemoteAgentHosts'] as const;
 type HostSetting = typeof hostSettings[number];
-type HostEntry = { address: string, name: string, connectionToken?: string };
+type HostEntry = { address: string, name: string };
 type AgentCommand = { executable: string, args: string[] };
-type Registration = {
-	setting: HostSetting;
-	target: vscode.ConfigurationTarget;
-	entry: HostEntry;
-	inherited: boolean;
-	writtenHash: string;
-};
+/** ok: a host without a token answers. unauthorized: a host that requires one. */
+type Probe = 'ok' | 'unauthorized' | 'down' | 'other';
 
 /**
- * Owns one server and only its own host entry. An editor window's server is
- * for its first folder; the Agents window's serves every project.
+ * Keeps the shared host available while this window wants it. The first window
+ * runs the process; the others use it and take over when that window closes.
  */
 export class WingmanAgentHost implements vscode.Disposable {
 	private child?: ChildProcess;
-	private shared = false;
+	private active = false;
+	private watch?: ReturnType<typeof setInterval>;
 	private pending: Promise<void> = Promise.resolve();
 	private generation = 0;
 	private disposed = false;
 	private startupAbort?: AbortController;
 	private readonly listeners: vscode.Disposable[];
 
-	constructor(private readonly context: vscode.ExtensionContext, private readonly logger: vscode.LogOutputChannel) {
+	constructor(private readonly logger: vscode.LogOutputChannel) {
 		this.listeners = [
-			vscode.workspace.onDidGrantWorkspaceTrust(() => { void this.configure(); }),
-			// The Agents window's folder follows the focused session; its host stays.
-			vscode.workspace.onDidChangeWorkspaceFolders(() => { if (!this.shared) { void this.configure(); } }),
+			vscode.workspace.onDidGrantWorkspaceTrust(() => { void this.autoStart(); }),
+			// The Agents window's folder follows the focused session and never gates the host.
+			vscode.workspace.onDidChangeWorkspaceFolders(() => { if (registeredSetting() === 'workspaceRemoteAgentHosts') { void this.autoStart(); } }),
 			vscode.workspace.onDidChangeConfiguration(event => {
 				if (event.affectsConfiguration('wingman.agentHost') || event.affectsConfiguration('chat.remoteAgentHostsEnabled') || event.affectsConfiguration('chat.disableAIFeatures')) {
-					void this.configure();
+					void this.applyPreferences();
+				} else if (hostSettings.some(setting => event.affectsConfiguration(`chat.${setting}`))) {
+					void this.enqueue(() => this.followRemoval());
 				}
 			}),
 		];
 	}
 
-	/** Apply startup preferences; changes restart the server with the new configuration. */
+	/** On activation: join or start the shared host, or remove an entry no host serves. */
 	configure(): Promise<void> {
-		const stopped = this.stop();
-		return vscode.workspace.getConfiguration('wingman').get<boolean>('agentHost.autoStart', true)
-			? this.start(false) : stopped;
+		return autoStartEnabled() ? this.start(false) : this.enqueue(() => this.pruneEntry());
 	}
 
 	start(interactive = true): Promise<void> {
 		const generation = this.generation;
 		return this.enqueue(async () => {
-			if (this.disposed || generation !== this.generation) {
+			if (this.isStale(generation)) {
 				return;
 			}
 			try {
-				await this.startServer(generation);
-				if (interactive && this.child) {
+				await this.ensureHost(generation);
+				if (this.isStale(generation)) {
+					return;
+				}
+				this.setActive(true);
+				if (interactive) {
 					void vscode.window.showInformationMessage('Wingman: agent host is running. Select Wingman in Chat to start a session.');
 				}
 			} catch (error) {
 				await this.stopServer();
-				if (generation !== this.generation || this.disposed) {
+				if (this.isStale(generation)) {
 					return;
 				}
 				const message = error instanceof Error ? error.message : String(error);
@@ -80,24 +85,57 @@ export class WingmanAgentHost implements vscode.Disposable {
 		});
 	}
 
+	/** Stops the shared host for every window by removing its entry. */
 	stop(): Promise<void> {
-		this.generation++;
-		// Interrupt a pending startup before waiting for its queued operation.
-		this.startupAbort?.abort();
-		this.child?.kill('SIGTERM');
-		return this.enqueue(() => this.stopServer());
+		void this.release();
+		return this.enqueue(async () => {
+			const setting = registeredSetting();
+			if (setting) {
+				await this.removeEntry(setting);
+			}
+		});
 	}
 
 	dispose(): void {
 		void this.shutdown();
 	}
 
+	/** Leaves the entry in place so another window can take over the host. */
 	shutdown(): Promise<void> {
 		this.disposed = true;
 		for (const listener of this.listeners) {
 			listener.dispose();
 		}
-		return this.stop();
+		return this.release();
+	}
+
+	private autoStart(): Promise<void> {
+		return !this.active && autoStartEnabled() ? this.start(false) : Promise.resolve();
+	}
+
+	/** Preferences are shared by every window, so each one applies the change. */
+	private applyPreferences(): Promise<void> {
+		const chat = vscode.workspace.getConfiguration('chat');
+		if (!autoStartEnabled() || chat.get('remoteAgentHostsEnabled') === false || chat.get('disableAIFeatures') === true) {
+			return this.stop();
+		}
+		// Restart with the new executable; one window wins the port again.
+		void this.release();
+		return this.start(false);
+	}
+
+	/** Stops following the host here, and stops the process if this window runs it. */
+	private release(): Promise<void> {
+		this.generation++;
+		this.setActive(false);
+		// Interrupt a pending startup before waiting for its queued operation.
+		this.startupAbort?.abort();
+		this.child?.kill('SIGTERM');
+		return this.enqueue(() => this.stopServer());
+	}
+
+	private isStale(generation: number): boolean {
+		return this.disposed || generation !== this.generation;
 	}
 
 	private enqueue(action: () => Promise<void>): Promise<void> {
@@ -107,10 +145,76 @@ export class WingmanAgentHost implements vscode.Disposable {
 		return this.pending;
 	}
 
-	private async startServer(generation: number): Promise<void> {
-		if (this.child) {
+	private setActive(active: boolean): void {
+		this.active = active;
+		if (active && !this.watch) {
+			this.watch = setInterval(() => { void this.enqueue(() => this.takeOver()); }, watchInterval);
+		} else if (!active && this.watch) {
+			clearInterval(this.watch);
+			this.watch = undefined;
+		}
+	}
+
+	/** Restart the host when the window running it closed or the process exited. */
+	private async takeOver(): Promise<void> {
+		// Only a closed port means the host is gone; a slow answer is not a reason to stop.
+		if (!this.active || this.child || await probe() !== 'down') {
 			return;
 		}
+		const generation = this.generation;
+		try {
+			await this.ensureHost(generation);
+		} catch (error) {
+			await this.stopServer();
+			if (!this.isStale(generation)) {
+				this.setActive(false);
+				this.logger.warn('Agent host stopped:', error instanceof Error ? error.message : String(error));
+			}
+		}
+	}
+
+	/** Stop in another window removed the shared entry; stop following it here too. */
+	private async followRemoval(): Promise<void> {
+		const setting = registeredSetting();
+		if (this.active && setting && !userEntries(setting).some(value => isSameAddress(value, hostAddress))) {
+			this.logger.info('The Wingman agent host connection was removed from settings.');
+			void this.release();
+		}
+	}
+
+	private async ensureHost(generation: number): Promise<void> {
+		const setting = this.checkWindow();
+		let state = await probe();
+		if (state === 'down') {
+			try {
+				await this.startServer(generation);
+				state = 'ok';
+			} catch (error) {
+				// Windows starting together race for the port: the loser uses the winner.
+				await this.stopServer();
+				state = await probe();
+				if (state === 'down' && !this.isStale(generation)) {
+					await this.removeEntry(setting);
+				}
+				if (state !== 'ok') {
+					throw error;
+				}
+			}
+		}
+		if (this.isStale(generation)) {
+			return;
+		}
+		if (state === 'unauthorized') {
+			throw new Error(`A Wingman host that requires a connection token is using port ${hostPort}. Stop it so VS Code windows can share one host.`);
+		}
+		if (state === 'other') {
+			throw new Error(`Port ${hostPort} is in use by another program or not responding.`);
+		}
+		await this.ensureEntry(setting);
+	}
+
+	/** Returns the host setting this window reads, or throws why it cannot use the host. */
+	private checkWindow(): HostSetting {
 		if (!vscode.workspace.isTrusted) {
 			throw new Error('Trust this workspace before starting the agent host.');
 		}
@@ -119,41 +223,37 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (major < 1 || (major === 1 && minor < 144)) {
 			throw new Error('Wingman AHP requires VS Code 1.144 or later. Model sync remains available on this version.');
 		}
-		// These settings are registered in different VS Code window types. Do
-		// not write an unknown setting on older releases (model sync still works).
-		const setting = hostSettings.find(key => chat.inspect(key)?.defaultValue !== undefined);
+		const setting = registeredSetting();
 		if (!setting) {
 			throw new Error('This VS Code window does not support AHP host configuration. Update VS Code to a release with chat.workspaceRemoteAgentHosts, or use the Agents window.');
 		}
-		const shared = this.shared = setting === 'remoteAgentHosts';
+		// The Agents window chooses a folder per session; editor sessions use the window's folder.
 		const folder = vscode.workspace.workspaceFolders?.[0];
-		if (vscode.env.remoteName || !shared && (!folder || folder.uri.scheme !== 'file')) {
+		if (vscode.env.remoteName || setting === 'workspaceRemoteAgentHosts' && (!folder || folder.uri.scheme !== 'file')) {
 			throw new Error('Open a local project folder to start the agent host. Remote workspaces are not supported yet.');
 		}
 		if (chat.get('remoteAgentHostsEnabled') === false || chat.get('disableAIFeatures') === true) {
 			throw new Error('Agent host connections are disabled in VS Code settings.');
 		}
-		await this.removeRegistration();
-		if (this.disposed || generation !== this.generation) {
-			return;
-		}
+		return setting;
+	}
 
+	private async startServer(generation: number): Promise<void> {
 		const command = await this.resolveCommand();
-		if (this.disposed || generation !== this.generation) {
+		if (this.isStale(generation)) {
 			return;
 		}
-		// No shell and no fixed port: Wingman chooses its default or an available
-		// port and reports the actual endpoint. Each window owns its own process.
-		// A host for every project only accepts this window's token.
-		const token = shared ? randomBytes(24).toString('base64url') : undefined;
-		const child = spawn(command.executable, [...command.args, ...(shared ? ['host'] : ['server', '--no-browser'])], {
-			cwd: shared ? homedir() : folder!.uri.fsPath,
-			env: token ? { ...env, WINGMAN_HOST_TOKEN: token } : undefined,
+		// No shell. A fixed port lets every window find the same host; a second
+		// process fails to bind instead of starting another host elsewhere.
+		// An inherited token would lock out VS Code, whose entry has none.
+		const child = spawn(command.executable, [...command.args, 'host', '--port', String(hostPort)], {
+			cwd: homedir(),
+			env: { ...env, WINGMAN_HOST_TOKEN: '' },
 			stdio: ['ignore', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
 		this.child = child;
-		this.logger.info('Starting Wingman agent host', shared ? 'for all projects' : `in ${folder!.uri.fsPath}`);
+		this.logger.info('Starting the shared Wingman agent host');
 		this.startupAbort = new AbortController();
 		let endpoint: string;
 		try {
@@ -161,13 +261,13 @@ export class WingmanAgentHost implements vscode.Disposable {
 		} finally {
 			this.startupAbort = undefined;
 		}
-		if (this.disposed || generation !== this.generation) {
+		if (this.isStale(generation)) {
 			return;
 		}
-		await this.register(setting, shared
-			? { address: endpoint, name: 'Wingman', connectionToken: token }
-			: { address: endpoint, name: `Wingman (${folder!.name})` });
-		this.logger.info('Configured Wingman agent host:', endpoint);
+		if (!isSameAddress({ address: endpoint }, hostAddress)) {
+			throw new Error(`Wingman reported ${endpoint} instead of ${hostAddress}.`);
+		}
+		this.logger.info('Wingman agent host is running:', endpoint);
 	}
 
 	private async resolveCommand(): Promise<AgentCommand> {
@@ -225,72 +325,13 @@ export class WingmanAgentHost implements vscode.Disposable {
 			child.once('exit', (code, signal) => {
 				cleanup();
 				reject(new Error(`Agent host exited (${signal ?? code}). See Wingman AI output for details.`));
-				void this.enqueue(async () => {
-					if (this.child === child) {
-						this.child = undefined;
-						this.logger.info('Wingman agent host exited:', signal ?? code);
-						await this.removeRegistration();
-					}
-				});
+				if (this.child === child) {
+					// An active window, this one or another, restarts it on its next check.
+					this.child = undefined;
+					this.logger.info('Wingman agent host exited:', signal ?? code);
+				}
 			});
 		});
-	}
-
-	private async register(setting: HostSetting, entry: HostEntry): Promise<void> {
-		const config = vscode.workspace.getConfiguration('chat');
-		const target = setting === 'workspaceRemoteAgentHosts' ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
-		const inspected = config.inspect<unknown[]>(setting);
-		const previous = target === vscode.ConfigurationTarget.Workspace ? inspected?.workspaceValue : inspected?.globalValue;
-		const entries = config.get<unknown[]>(setting, []);
-		if (!Array.isArray(entries)) {
-			throw new Error(`chat.${setting} must be an array.`);
-		}
-		if (entries.some(value => isSameAddress(value, entry.address))) {
-			if (entry.connectionToken) {
-				// This process owns the endpoint, so an existing connection needs
-				// its new token. Preserve the user's name and other options.
-				const updated = entries.map(value => isSameAddress(value, entry.address)
-					? { ...value, connectionToken: entry.connectionToken } : value);
-				// VS Code keeps the token in its live connection. Remove the address
-				// first so it creates a new connection instead of retrying the old token.
-				await config.update(setting, entries.filter(value => !isSameAddress(value, entry.address)), target);
-				try {
-					await config.update(setting, updated, target);
-				} catch (error) {
-					await config.update(setting, previous, target);
-					throw error;
-				}
-			}
-			return; // A user-owned connection must never become ours to remove.
-		}
-		const written = [...entries, entry];
-		// Persist ownership first so a reload/crash can clean up the old port.
-		// Store a fingerprint, not copies of other hosts' connection tokens.
-		await this.context.workspaceState.update(registrationKey, {
-			setting, target, entry, inherited: previous === undefined, writtenHash: fingerprint(written),
-		} satisfies Registration);
-		await config.update(setting, written, target);
-	}
-
-	private async removeRegistration(): Promise<void> {
-		const owned = this.context.workspaceState.get<Registration>(registrationKey);
-		if (!owned) {
-			return;
-		}
-		const config = vscode.workspace.getConfiguration('chat');
-		const inspected = config.inspect<unknown[]>(owned.setting);
-		const current = owned.target === vscode.ConfigurationTarget.Workspace ? inspected?.workspaceValue : inspected?.globalValue;
-		if (Array.isArray(current)) {
-			const remaining = current.filter(entry => JSON.stringify(entry) !== JSON.stringify(owned.entry));
-			// Restore inheritance when unchanged; otherwise preserve user edits,
-			// including a renamed entry or one with additional connection options.
-			if (fingerprint(current) === owned.writtenHash) {
-				await config.update(owned.setting, owned.inherited ? undefined : remaining, owned.target);
-			} else if (remaining.length !== current.length) {
-				await config.update(owned.setting, remaining, owned.target);
-			}
-		}
-		await this.context.workspaceState.update(registrationKey, undefined);
 	}
 
 	private async stopServer(): Promise<void> {
@@ -303,8 +344,70 @@ export class WingmanAgentHost implements vscode.Disposable {
 				child.kill('SIGTERM');
 			});
 		}
-		await this.removeRegistration();
 	}
+
+	/** Adds the shared entry to user settings unless an entry already points at the host. */
+	private async ensureEntry(setting: HostSetting): Promise<void> {
+		const config = vscode.workspace.getConfiguration('chat');
+		const inspected = config.inspect<unknown[]>(setting);
+		const entries = inspected?.globalValue ?? [];
+		if (!Array.isArray(entries)) {
+			throw new Error(`chat.${setting} must be an array in user settings.`);
+		}
+		if (!entries.some(value => isSameAddress(value, hostAddress))) {
+			await config.update(setting, [...entries, { address: hostAddress, name: hostName } satisfies HostEntry], vscode.ConfigurationTarget.Global);
+		}
+		// Workspace values replace the user's list rather than adding to it.
+		const overrides = [inspected?.workspaceValue, inspected?.workspaceFolderValue].filter(Array.isArray);
+		if (overrides.some(value => !value.some(entry => isSameAddress(entry, hostAddress)))) {
+			this.logger.warn(`chat.${setting} in this workspace's settings hides the Wingman host from user settings. Remove it there or add ${hostAddress}.`);
+		}
+	}
+
+	/** Removes the shared entry; an entry the user renamed or extended stays theirs. */
+	private async removeEntry(setting: HostSetting): Promise<void> {
+		const entries = userEntries(setting);
+		const remaining = entries.filter(value => !isOwnEntry(value));
+		if (remaining.length !== entries.length) {
+			await vscode.workspace.getConfiguration('chat').update(setting, remaining.length ? remaining : undefined, vscode.ConfigurationTarget.Global);
+		}
+	}
+
+	/** Without automatic startup, nothing restarts a host whose window closed. */
+	private async pruneEntry(): Promise<void> {
+		const setting = registeredSetting();
+		if (setting && !vscode.env.remoteName && userEntries(setting).some(isOwnEntry) && await probe() === 'down') {
+			await this.removeEntry(setting);
+		}
+	}
+}
+
+function autoStartEnabled(): boolean {
+	return vscode.workspace.getConfiguration('wingman').get<boolean>('agentHost.autoStart', true);
+}
+
+/** The host setting this window reads, if this VS Code release registers one. */
+function registeredSetting(): HostSetting | undefined {
+	const chat = vscode.workspace.getConfiguration('chat');
+	return hostSettings.find(key => chat.inspect(key)?.defaultValue !== undefined);
+}
+
+function userEntries(setting: HostSetting): unknown[] {
+	const value = vscode.workspace.getConfiguration('chat').inspect<unknown[]>(setting)?.globalValue;
+	return Array.isArray(value) ? value : [];
+}
+
+/** Checks the host without opening an AHP connection: WebSocket routes answer 426 to plain requests. */
+function probe(): Promise<Probe> {
+	return new Promise(resolve => {
+		// A fresh connection each time: a pooled socket may belong to a host that exited.
+		const request = get({ host: 'localhost', port: hostPort, path: '/ahp', timeout: 5000, agent: false }, response => {
+			response.resume();
+			resolve(response.statusCode === 426 ? 'ok' : response.statusCode === 401 ? 'unauthorized' : 'other');
+		});
+		request.on('timeout', () => request.destroy(new Error('timeout')));
+		request.on('error', (error: NodeJS.ErrnoException) => resolve(error.code === 'ECONNREFUSED' ? 'down' : 'other'));
+	});
 }
 
 async function isExecutable(filename: string): Promise<boolean> {
@@ -373,6 +476,7 @@ function isSameAddress(value: unknown, address: string): value is { address: str
 		&& value.address.replace(/^ws:\/\//, '') === address.replace(/^ws:\/\//, '');
 }
 
-function fingerprint(value: unknown): string {
-	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Exactly the entry this extension writes, without user changes. */
+function isOwnEntry(value: unknown): boolean {
+	return isSameAddress(value, hostAddress) && Object.keys(value).length === 2 && 'name' in value && value.name === hostName;
 }

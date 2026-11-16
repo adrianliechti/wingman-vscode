@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.4.2] - 2026-11-16
+
+- Run one shared `wingman host` for all windows and register it in user settings instead of each project's `.vscode/settings.json`.
+- When the window running the host closes, another open window takes over. Stop Agent Host stops it for all windows.
+
 ## [0.4.1] - 2026-11-15
 
 - Support the VS Code Agents window with one authenticated `wingman host` process for all projects, including startup without an open folder and continued operation across folder changes.
