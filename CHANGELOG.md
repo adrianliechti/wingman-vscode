@@ -4,6 +4,10 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.4.3] - 2026-11-17
+
+- Add GPT 6.2 Astra and GPT 6.2 Sol with image input, tool use, and Thinking Effort from `low` through `max`.
+
 ## [0.4.2] - 2026-11-16
 
 - Run one shared `wingman host` for all windows and register it in user settings instead of each project's `.vscode/settings.json`.

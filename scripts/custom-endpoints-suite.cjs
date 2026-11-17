@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const vscode = require('vscode');
 
-const ids = ['gpt-6-sol', 'claude-sonnet-5-5', 'glm-5.3'];
+const ids = ['gpt-6.2-astra', 'gpt-6.2-sol', 'claude-sonnet-5-5', 'glm-5.3'];
 const key = 'wingman-integration-test-key';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 

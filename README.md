@@ -76,6 +76,8 @@ You can change either setting in VS Code Settings. Existing choices, including *
 
 Only supported models available on your backend appear in the picker. GPT support starts at 5.6; Claude support starts at 5.5, with Fable 5.2 also included.
 
+GPT 6.2 Astra and GPT 6.2 Sol use the Responses API and support a 1.05M-token context window, up to 128K output tokens, image input, and tool use. Both offer `low`, `medium`, `high`, `xhigh`, and `max` in **Thinking Effort**. [Astra API reference](https://developers.openai.com/api/docs/models/gpt-6.2-astra) · [Sol API reference](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+
 [GPT 6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) supports a 1.05M-token context window, up to 128K output tokens, image input, tool use, and reasoning. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`.
 
 [GPT 6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) supports a 1.05M-token context window, up to 128K output tokens, image input, tool use, and reasoning. Its **Thinking Effort** options are `none`, `low`, `medium`, `high`, `xhigh`, and `max`.
@@ -96,6 +98,8 @@ Qwen support focuses on [3.8 Max](https://openrouter.ai/qwen/qwen3.8-max-0902), 
 
 | Chat Model | Model IDs |
 |---|---|
+| GPT 6.2 Astra | `gpt-6.2-astra` |
+| GPT 6.2 Sol | `gpt-6.2-sol` |
 | GPT 6 Astra | `gpt-6-astra` |
 | GPT 6.1 Sol | `gpt-6.1-sol` |
 | GPT 6.1 Terra | `gpt-6.1-terra` |

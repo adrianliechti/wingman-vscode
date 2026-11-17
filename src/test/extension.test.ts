@@ -73,6 +73,22 @@ suite('Utility model selection', () => {
 		assert.deepStrictEqual(unmatched, ['unknown-model']);
 	});
 
+	test('discovers both GPT 6.2 models with Responses API capabilities', () => {
+		const ids = ['gpt-6.2-astra', 'gpt-6.2-sol'];
+		const { models, unmatched } = toCustomEndpointModels(ids, 'http://localhost:4242/v1');
+		assert.deepStrictEqual(unmatched, []);
+		assert.deepStrictEqual(models.map(model => model.id), ids);
+		for (const model of models) {
+			assert.strictEqual(model.apiType, 'responses');
+			assert.strictEqual(model.url, 'http://localhost:4242/v1/responses');
+			assert.deepStrictEqual([model.contextWindow, model.maxOutputTokens], [1050000, 128000]);
+			assert.strictEqual(model.vision, true);
+			assert.strictEqual(model.toolCalling, true);
+			assert.strictEqual(model.thinking, true);
+			assert.deepStrictEqual(model.supportsReasoningEffort, ['low', 'medium', 'high', 'xhigh', 'max']);
+		}
+	});
+
 	test('reserves synchronous output inside shared Gemini 4 windows', () => {
 		const { models } = toCustomEndpointModels(['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen'], 'http://localhost/v1');
 		assert.strictEqual(models.length, 3);

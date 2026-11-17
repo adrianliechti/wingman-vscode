@@ -2,8 +2,8 @@
  * Reasoning effort levels offered in the "Thinking Effort" picker.
  *
  * Responses API models: forwarded verbatim as `reasoning.effort`. "none"
- * disables reasoning where supported. GPT-6 Astra and GPT-6.1 Sol
- * require at least "low". GPT-5.6+ add "max" above
+ * disables reasoning where supported. GPT-6.2 Astra and Sol, GPT-6 Astra,
+ * and GPT-6.1 Sol require at least "low". GPT-5.6+ add "max" above
  * "xhigh" for the hardest quality-first workloads.
  *
  * Messages API models: forwarded verbatim as `output_config.effort`; Anthropic
@@ -110,6 +110,24 @@ interface ModelCandidate {
 // The first available model in each class is preferred for utility tasks.
 const candidates: ModelCandidate[] = [
 	// OpenAI models
+	{
+		id: ["gpt-6.2-astra"],
+		name: "GPT 6.2 Astra",
+		class: "large",
+		apiType: "responses",
+		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
+	{
+		id: ["gpt-6.2-sol"],
+		name: "GPT 6.2 Sol",
+		class: "large",
+		apiType: "responses",
+		limits: { contextWindow: 1050000, maxOutputTokens: 128000 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh", "max"],
+	},
 	{
 		id: ["gpt-6-astra"],
 		name: "GPT 6 Astra",
