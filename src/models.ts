@@ -222,6 +222,14 @@ const candidates: ModelCandidate[] = [
 		reasoningEffort: ["low", "medium", "high"],
 	},
 	{
+		id: ["gemini-4-neon"],
+		name: "Gemini 4 Neon",
+		class: "medium",
+		limits: { contextWindow: 1048576, maxOutputTokens: 65536 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["low", "medium", "high", "xhigh"],
+	},
+	{
 		id: ["gemini-4-hydrogen"],
 		name: "Gemini 4 Hydrogen",
 		class: "small",

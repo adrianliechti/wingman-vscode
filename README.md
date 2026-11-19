@@ -86,7 +86,7 @@ GPT 6.2 Astra and GPT 6.2 Sol use the Responses API and support a 1.05M-token co
 
 [Fable 5.2](https://platform.claude.com/docs/en/models/fable-5-2/overview) supports a 1M-token context window, up to 128K output tokens, image input, tool use, and always-on adaptive thinking. Its **Thinking Effort** options are `low`, `medium`, `high`, `xhigh`, and `max`. Anthropic requires 30-day data retention unless expressly authorized otherwise.
 
-[Gemini 4 Carbon](https://aistudio.google.com/docs/models/gemini-4-carbon), [Argon](https://aistudio.google.com/docs/models/gemini-4-argon), and [Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen) use a shared 1,048,576-token context window and a 65,536-token synchronous output limit, with image input, tool use, and reasoning. Carbon and Argon offer `low`, `medium`, and `high` thinking effort; Hydrogen also offers `xhigh`. Google's separate long-decode mode is not used by this integration.
+[Gemini 4 Carbon](https://aistudio.google.com/docs/models/gemini-4-carbon), [Argon](https://aistudio.google.com/docs/models/gemini-4-argon), [Neon](https://aistudio.google.com/docs/models/gemini-4-neon), and [Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen) use a shared 1,048,576-token context window and a 65,536-token synchronous output limit, with image input, tool use, and reasoning. Carbon and Argon offer `low`, `medium`, and `high` thinking effort; Neon and Hydrogen also offer `xhigh`. Google's separate long-decode mode is not used by this integration.
 
 [GLM 5.3](https://docs.z.ai/guides/llm/glm-5.3) and [GLM 5.3 Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash) support a 1M-token context window, 128K output tokens, tool use, and always-on reasoning with `low`, `high`, and `max` effort. GLM 5.3 accepts text; Flash also accepts images.
 
@@ -110,6 +110,7 @@ Qwen support focuses on [3.8 Max](https://openrouter.ai/qwen/qwen3.8-max-0902), 
 | GPT 5.6 Terra | `gpt-5.6-terra` |
 | Gemini 4 Carbon | `gemini-4-carbon` |
 | Gemini 4 Argon | `gemini-4-argon` |
+| Gemini 4 Neon | `gemini-4-neon` |
 | Gemini 4 Hydrogen | `gemini-4-hydrogen` |
 | Fable 5.2 | `claude-fable-5-2` |
 | Opus 5.5 | `claude-opus-5-5` |

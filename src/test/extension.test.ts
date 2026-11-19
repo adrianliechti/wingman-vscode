@@ -90,8 +90,8 @@ suite('Utility model selection', () => {
 	});
 
 	test('reserves synchronous output inside shared Gemini 4 windows', () => {
-		const { models } = toCustomEndpointModels(['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen'], 'http://localhost/v1');
-		assert.strictEqual(models.length, 3);
+		const { models } = toCustomEndpointModels(['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-neon', 'gemini-4-hydrogen'], 'http://localhost/v1');
+		assert.strictEqual(models.length, 4);
 		for (const model of models) {
 			assert.deepStrictEqual([model.contextWindow, model.maxOutputTokens], [1048576, 65536]);
 			assert.ok(!Object.hasOwn(model, 'maxInputTokens'));
