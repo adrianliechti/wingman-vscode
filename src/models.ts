@@ -340,6 +340,17 @@ const candidates: ModelCandidate[] = [
 		capabilities: { toolCalling: true, imageInput: true },
 		reasoningEffort: ["low", "medium", "high", "max"],
 	},
+	{
+		id: [
+			"inkling-2-mini", "thinkingmachines/Inkling-2-Mini", "thinkingmachines/inkling-2-mini",
+			"inkling-2-mini:latest", "inkling-2-mini:26b-a5b", "inkling-2-mini:26b-a5b-nvfp4",
+		],
+		name: "Inkling 2 Mini",
+		class: "small",
+		limits: { contextWindow: 1048576, maxOutputTokens: 131072 },
+		capabilities: { toolCalling: true, imageInput: true },
+		reasoningEffort: ["none", "low", "medium", "high", "xhigh", "max"],
+	},
 
 	// Mistral models
 	// https://docs.mistral.ai/inference/conversations/reasoning

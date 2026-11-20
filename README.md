@@ -92,7 +92,7 @@ GPT 6.2 Astra and GPT 6.2 Sol use the Responses API and support a 1.05M-token co
 
 Qwen support focuses on [3.8 Max](https://openrouter.ai/qwen/qwen3.8-max-0902), [3.8 Flash](https://openrouter.ai/qwen/qwen3.8-flash), and [3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B). They support images, tool use, and reasoning. Max and 27B offer `low`, `medium`, and `xhigh` effort; Flash uses its default reasoning configuration. The 27B entry uses its native 262,144-token window for local deployment; larger contexts require server-side scaling. Stable names, listed snapshots, and provider-qualified IDs resolve to one entry per model, using the first available ID in the order below.
 
-[Inkling 2 Small](https://huggingface.co/thinkingmachines/Inkling-2-Small) supports image input, tool use, and reasoning. The extension configures a 1,048,576-token context window with a 131,072-token output budget, leaving most of the shared window available for project context.
+Inkling 2 Small and Inkling 2 Mini support image input, tool use, and reasoning. The extension reserves 131,072 tokens for output in each model’s 1,048,576-token context window. [Inkling 2 Small](https://huggingface.co/thinkingmachines/Inkling-2-Small) · [Inkling 2 Mini](https://huggingface.co/thinkingmachines/Inkling-2-Mini)
 
 [Mistral Large 4](https://openrouter.ai/mistralai/mistral-large-4-0) supports a 1,048,576-token context window and up to 262,144 output tokens. [Mistral Small 4](https://docs.mistral.ai/models/mistral-small-4-0-26-03) has a shared 262,144-token context window; the extension reserves 65,536 tokens for output to leave room for project context. Both support images and tool use. Following [Mistral's current reasoning settings](https://docs.mistral.ai/inference/conversations/reasoning), Large 4 offers `low`, `medium`, and `high`; Small 4 offers `none` and `high`.
 
@@ -122,6 +122,7 @@ Qwen support focuses on [3.8 Max](https://openrouter.ai/qwen/qwen3.8-max-0902), 
 | Qwen 3.8 Flash | `qwen3.8-flash`, `qwen/qwen3.8-flash` |
 | Qwen 3.8 27B | `qwen3.8-27b`, `Qwen/Qwen3.8-27B`, `qwen/qwen3.8-27b` |
 | Inkling 2 Small | `inkling-2-small`, `thinkingmachines/Inkling-2-Small`, `thinkingmachines/inkling-2-small` |
+| Inkling 2 Mini | `inkling-2-mini`, `thinkingmachines/Inkling-2-Mini`, `thinkingmachines/inkling-2-mini`, `inkling-2-mini:latest`, `inkling-2-mini:26b-a5b`, `inkling-2-mini:26b-a5b-nvfp4` |
 | Mistral Large 4 | `mistral-large-4`, `mistral-large-4-0`, `mistralai/mistral-large-4-0` |
 | Mistral Small 4 | `mistral-small-4`, `mistral-small-2603`, `mistralai/mistral-small-2603` |
 

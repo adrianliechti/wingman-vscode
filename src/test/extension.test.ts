@@ -89,6 +89,21 @@ suite('Utility model selection', () => {
 		}
 	});
 
+	test('discovers Inkling 2 Mini deployments alongside Inkling 2 Small', () => {
+		for (const id of ['inkling-2-mini', 'thinkingmachines/Inkling-2-Mini', 'thinkingmachines/inkling-2-mini', 'inkling-2-mini:latest', 'inkling-2-mini:26b-a5b', 'inkling-2-mini:26b-a5b-nvfp4']) {
+			const { models, unmatched } = toCustomEndpointModels([id, 'inkling-2-small'], 'http://localhost/v1');
+			assert.deepStrictEqual(unmatched, []);
+			assert.deepStrictEqual(models.map(model => model.id), ['inkling-2-small', id]);
+			const mini = models[1];
+			assert.strictEqual(mini.name, 'Inkling 2 Mini');
+			assert.strictEqual(mini.url, 'http://localhost/v1/chat/completions');
+			assert.deepStrictEqual([mini.contextWindow, mini.maxOutputTokens], [1048576, 131072]);
+			assert.ok(mini.vision && mini.toolCalling && mini.thinking);
+			assert.deepStrictEqual(mini.supportsReasoningEffort, ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+			assert.strictEqual(selectUtilityModels([id])?.utilitySmallModel, id);
+		}
+	});
+
 	test('reserves synchronous output inside shared Gemini 4 windows', () => {
 		const { models } = toCustomEndpointModels(['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-neon', 'gemini-4-hydrogen'], 'http://localhost/v1');
 		assert.strictEqual(models.length, 4);
