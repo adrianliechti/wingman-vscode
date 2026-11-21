@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [Unreleased]
+
+- Add the **Wingman** panel in the Secondary Side Bar: a chat with Wingman's own agent over the shared agent host, with model, mode and effort pickers, approvals, questions, queued follow-ups, and this folder's session history. It works without Copilot Chat.
+- Start the agent host while VS Code's AI features (`chat.disableAIFeatures`) or remote agent hosts (`chat.remoteAgentHostsEnabled`) are switched off, so the panel works without them. Changing these settings no longer stops the host.
+
 ## [0.4.3] - 2026-11-17
 
 - Add GPT 6.2 Astra and GPT 6.2 Sol with image input, tool use, and Thinking Effort from `low` through `max`.

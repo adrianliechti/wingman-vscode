@@ -2,7 +2,7 @@
 
 Use models from your [Wingman AI Platform](https://github.com/adrianliechti/wingman) in VS Code's Copilot Chat. The extension adds your available models to the chat model picker and keeps the list up to date.
 
-With [wingman-agent](https://github.com/adrianliechti/wingman-agent) installed, the extension can also start Wingman's Agent Host Protocol (AHP) server and connect VS Code Chat to its agents and sessions.
+With [wingman-agent](https://github.com/adrianliechti/wingman-agent) installed, the extension can also start Wingman's Agent Host Protocol (AHP) server and connect VS Code Chat to its agents and sessions. The **Wingman** panel talks to Wingman's own agent directly.
 
 ## Requirements
 
@@ -58,6 +58,22 @@ The host is registered in user settings, never in workspace settings: `chat.work
 The executable setting and `~/.wingman/path` accept a path or a launcher command such as `/bin/devtool wingman`, which runs `/bin/devtool wingman host --port 9100`. Quote paths and arguments that contain spaces; no shell expansion is performed. An unusable discovery file falls back to `wingman` on PATH.
 
 Use **Wingman: Start Agent Host** to start or retry, and **Wingman: Stop Agent Host** to stop the host and remove its entry, which stops it in the other windows too. Set `wingman.agentHost.autoStart` to `false` to start it manually; turning it off also stops the host. If another program, or a Wingman host that requires a token, already uses port 9100, startup reports it. Failures such as a missing executable are logged in **Output → Wingman AI**, and the Start command also shows them. Remote workspaces (SSH, WSL, Dev Containers) are not supported yet; older VS Code versions keep model sync only.
+
+The host also runs while `chat.disableAIFeatures` is on or `chat.remoteAgentHostsEnabled` is off, because the Wingman panel uses it either way. Its entry stays in user settings, where VS Code Chat ignores it until those features are on again.
+
+### Wingman panel
+
+The **Wingman** view in the Secondary Side Bar is a chat with Wingman's own agent. Open it from the side bar or run **Wingman: Open Chat**. It does not need Copilot Chat and works with VS Code's AI features switched off (`chat.disableAIFeatures`).
+
+- Sessions work in the window's first folder, which must be local and trusted.
+- Choose the model, the mode (Agent or Plan) and the reasoning effort below the message box. A new chat starts with the agent's defaults.
+- Press Enter to send and Shift+Enter for a new line. A message sent while the agent works is queued until the turn ends; the stop button ends the turn and drops queued messages.
+- Approvals and questions from the agent appear in the transcript. Tool calls and the agent's reasoning are folded; select one to see its input, output and files.
+- **New Chat** and **Show Chat History** in the view's title bar start a session or reopen one of this folder's. The panel shows the last open session again after a reload.
+
+The panel connects to the shared agent host at `ws://localhost:9100/ahp`, so its sessions are the ones VS Code Chat, the Agents window and Wingman's other clients show, and an approval answered in one of them is answered for all. If the host is not running, the panel offers **Start Agent Host**. On VS Code versions before 1.144, where the extension cannot start the host, run `wingman host` yourself without a token.
+
+The panel shows Wingman's built-in agent only; use VS Code Chat for the Claude, Codex and Pi agents the host also offers. Images in answers are shown only when they are embedded, never loaded from the web.
 
 ### Utility models
 
@@ -131,6 +147,10 @@ Inkling 2 Small and Inkling 2 Mini support image input, tool use, and reasoning.
 If models are missing, check that your Wingman backend is running and that the base URL and API key are correct, then run **Wingman: Sync Models**. For details about sync failures or unsupported models, open VS Code's **Output** panel and select **Wingman AI**.
 
 If VS Code reports that the Custom Endpoint vendor is unavailable, install or enable **GitHub Copilot Chat** (`GitHub.copilot-chat`) and check your organization's BYOK policy. Fresh VS Code profiles can have bundled Copilot disabled until Chat setup is completed. Wingman activates the provider before sync and retries when extensions or models become available. Provider failures are separate from gateway connection failures; the Wingman AHP host does not require Copilot.
+
+## Development
+
+With [Task](https://taskfile.dev) installed, `task install` builds the extension, packages it as a VSIX and installs it into VS Code, replacing an installed build of the same version; reload the window afterwards. `task package` only builds the VSIX. Set `CODE` to install into another build, as in `task install CODE=code-insiders`, and pass further `code` options after `--`, as in `task install -- --profile Work`.
 
 ## Integration checks
 
