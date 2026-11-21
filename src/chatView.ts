@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 
-import { hostAddress } from './agentHost';
+import { hostAddress, supportsManagedHost } from './agentHost';
 import type { FromWebview, SessionItem, ToWebview } from './chatProtocol';
 
 export const chatViewId = 'wingman.chat';
 
 type SessionPick = vscode.QuickPickItem & { uri: string };
+type History = { requestId: number, picker: vscode.QuickPick<SessionPick>, timeout: ReturnType<typeof setTimeout> };
 
 /**
  * The chat panel. Its webview connects to the shared agent host itself, so
@@ -16,7 +17,8 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 	private view?: vscode.WebviewView;
 	private ready = false;
 	private queued: ToWebview[] = [];
-	private sessions?: (reply: Extract<FromWebview, { type: 'sessions' }>) => void;
+	private history?: History;
+	private requestId = 0;
 	private readonly listeners: vscode.Disposable[];
 
 	constructor(
@@ -25,7 +27,12 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		private readonly startHost: () => Promise<void>,
 	) {
 		// Sessions run in the window's folder, so the panel follows it.
-		const update = () => { if (this.ready) { this.post(this.init()); } };
+		const update = () => {
+			this.closeHistory();
+			if (this.ready) {
+				this.post(this.init());
+			}
+		};
 		this.listeners = [
 			vscode.workspace.onDidChangeWorkspaceFolders(update),
 			vscode.workspace.onDidGrantWorkspaceTrust(update),
@@ -33,6 +40,9 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 	}
 
 	dispose(): void {
+		this.closeHistory();
+		this.view = undefined;
+		this.queued = [];
 		for (const listener of this.listeners) {
 			listener.dispose();
 		}
@@ -43,11 +53,16 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		this.view = view;
 		this.ready = false;
 		view.webview.options = { enableScripts: true, localResourceRoots: roots };
-		view.webview.onDidReceiveMessage((message: FromWebview) => { void this.receive(message); });
+		view.webview.onDidReceiveMessage((message: FromWebview) => {
+			if (this.view === view) {
+				void this.receive(message).catch(error => this.logger.warn('Wingman panel:', error));
+			}
+		});
 		view.onDidDispose(() => {
 			if (this.view === view) {
 				this.view = undefined;
 				this.ready = false;
+				this.closeHistory();
 			}
 		});
 		view.webview.html = html(view.webview, this.extensionUri);
@@ -61,57 +76,56 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 	/** Lists the folder's sessions, which only the webview's connection can read. */
 	async showHistory(): Promise<void> {
 		await this.reveal();
+		this.closeHistory();
 		const picker = vscode.window.createQuickPick<SessionPick>();
 		picker.placeholder = 'Open a Wingman session';
 		picker.matchOnDescription = true;
 		picker.busy = true;
-		picker.show();
-		const closed = new Promise<undefined>(resolve => picker.onDidHide(() => resolve(undefined)));
-		try {
-			const reply = await Promise.race([this.listSessions(), closed]);
-			if (!reply) {
-				return;
-			}
-			if (reply.error) {
-				picker.hide();
-				void vscode.window.showWarningMessage(`Wingman: could not list sessions — ${reply.error}`);
-				return;
-			}
-			picker.busy = false;
-			picker.placeholder = reply.items.length ? 'Open a Wingman session' : 'No sessions in this folder yet';
-			picker.items = reply.items.map(toPick);
-			picker.activeItems = picker.items.filter(item => item.picked);
-			const picked = await Promise.race([
-				new Promise<SessionPick | undefined>(resolve => picker.onDidAccept(() => resolve(picker.selectedItems[0]))),
-				closed,
-			]);
-			if (picked) {
+		const requestId = ++this.requestId;
+		const timeout = setTimeout(() => this.showSessions({ type: 'sessions', requestId, items: [], error: 'the chat panel did not answer' }), 15_000);
+		this.history = { requestId, timeout, picker };
+		picker.onDidHide(() => this.closeHistory(requestId));
+		picker.onDidAccept(() => {
+			const picked = picker.selectedItems[0];
+			if (this.history?.requestId === requestId && picked) {
+				this.closeHistory(requestId);
 				this.post({ type: 'openSession', uri: picked.uri });
 			}
-		} finally {
-			picker.dispose();
-		}
+		});
+		picker.show();
+		this.post({ type: 'listSessions', requestId });
 	}
 
 	private async reveal(): Promise<void> {
 		await vscode.commands.executeCommand(`${chatViewId}.focus`);
 	}
 
-	private listSessions(): Promise<Extract<FromWebview, { type: 'sessions' }>> {
-		return new Promise(resolve => {
-			const timeout = setTimeout(() => finish({ type: 'sessions', items: [], error: 'the chat panel did not answer' }), 15_000);
-			const finish = (reply: Extract<FromWebview, { type: 'sessions' }>) => {
-				clearTimeout(timeout);
-				if (this.sessions === finish) {
-					this.sessions = undefined;
-				}
-				resolve(reply);
-			};
-			// A newer request replaces an unanswered one.
-			this.sessions?.({ type: 'sessions', items: [] });
-			this.sessions = finish;
-			this.post({ type: 'listSessions' });
-		});
+	private closeHistory(requestId = this.history?.requestId): void {
+		const history = this.history;
+		if (history && history.requestId === requestId) {
+			this.history = undefined;
+			clearTimeout(history.timeout);
+			this.queued = this.queued.filter(message => message.type !== 'listSessions' || message.requestId !== requestId);
+			history.picker.dispose();
+		}
+	}
+
+	private showSessions(reply: Extract<FromWebview, { type: 'sessions' }>): void {
+		const history = this.history;
+		if (!history || history.requestId !== reply.requestId) {
+			return;
+		}
+		clearTimeout(history.timeout);
+		if (reply.error) {
+			this.closeHistory(reply.requestId);
+			void vscode.window.showWarningMessage(`Wingman: could not list sessions — ${reply.error}`);
+			return;
+		}
+		const { picker } = history;
+		picker.busy = false;
+		picker.placeholder = reply.items.length ? 'Open a Wingman session' : 'No sessions in this folder yet';
+		picker.items = reply.items.map(toPick);
+		picker.activeItems = picker.items.filter(item => item.picked);
 	}
 
 	private init(): ToWebview {
@@ -124,7 +138,7 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 				: !vscode.workspace.isTrusted
 					? 'Trust this workspace to chat with Wingman.'
 					: undefined;
-		return { type: 'init', address: hostAddress, ...(notice ? { notice } : { directory: folder?.uri.toString() }) };
+		return { type: 'init', address: hostAddress, canStartHost: supportsManagedHost(), ...(notice ? { notice } : { directory: folder?.uri.toString() }) };
 	}
 
 	/** Messages wait for the webview's script, which loads after the view is created. */
@@ -151,7 +165,7 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 				await this.startHost();
 				break;
 			case 'sessions':
-				this.sessions?.(message);
+				this.showSessions(message);
 				break;
 			case 'title':
 				if (this.view) {

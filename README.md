@@ -57,7 +57,7 @@ The host is registered in user settings, never in workspace settings: `chat.work
 
 The executable setting and `~/.wingman/path` accept a path or a launcher command such as `/bin/devtool wingman`, which runs `/bin/devtool wingman host --port 9100`. Quote paths and arguments that contain spaces; no shell expansion is performed. An unusable discovery file falls back to `wingman` on PATH.
 
-Use **Wingman: Start Agent Host** to start or retry, and **Wingman: Stop Agent Host** to stop the host and remove its entry, which stops it in the other windows too. Set `wingman.agentHost.autoStart` to `false` to start it manually; turning it off also stops the host. If another program, or a Wingman host that requires a token, already uses port 9100, startup reports it. Failures such as a missing executable are logged in **Output → Wingman AI**, and the Start command also shows them. Remote workspaces (SSH, WSL, Dev Containers) are not supported yet; older VS Code versions keep model sync only.
+Use **Wingman: Start Agent Host** to start or retry, and **Wingman: Stop Agent Host** to stop the host and remove its entry, which stops it in the other windows too. Set `wingman.agentHost.autoStart` to `false` to start it manually; turning it off also stops the host. If another program, or a Wingman host that requires a token, already uses port 9100, startup reports it. Failures such as a missing executable are logged in **Output → Wingman AI**, and the Start command also shows them. Agent host integration requires a local workspace.
 
 The host also runs while `chat.disableAIFeatures` is on or `chat.remoteAgentHostsEnabled` is off, because the Wingman panel uses it either way. Its entry stays in user settings, where VS Code Chat ignores it until those features are on again.
 
@@ -71,7 +71,7 @@ The **Wingman** view in the Secondary Side Bar is a chat with Wingman's own agen
 - Approvals and questions from the agent appear in the transcript. Tool calls and the agent's reasoning are folded; select one to see its input, output and files.
 - **New Chat** and **Show Chat History** in the view's title bar start a session or reopen one of this folder's. The panel shows the last open session again after a reload.
 
-The panel connects to the shared agent host at `ws://localhost:9100/ahp`, so its sessions are the ones VS Code Chat, the Agents window and Wingman's other clients show, and an approval answered in one of them is answered for all. If the host is not running, the panel offers **Start Agent Host**. On VS Code versions before 1.144, where the extension cannot start the host, run `wingman host` yourself without a token.
+The panel connects to the shared agent host at `ws://localhost:9100/ahp`, so its sessions are the ones VS Code Chat, the Agents window and Wingman's other clients show, and an approval answered in one of them is answered for all. If the host is offline, use **Start Agent Host** in the panel when available. In VS Code versions before 1.144, run `wingman host` in a terminal without a token.
 
 The panel shows Wingman's built-in agent only; use VS Code Chat for the Claude, Codex and Pi agents the host also offers. Images in answers are shown only when they are embedded, never loaded from the web.
 

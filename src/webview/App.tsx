@@ -80,7 +80,7 @@ export function App({ chat, host, focus, icon }: { chat: Chat, host: Host, focus
 				<div className="transcript" ref={scroller} onScroll={follow}>
 					{view.chat ? <Transcript view={view} chat={chat} /> : <Welcome view={view} host={host} chat={chat} icon={icon} />}
 				</div>
-				<Composer view={view} chat={chat} focus={focus} onSend={() => { pinned.current = true; }} />
+				<Composer key={view.composerKey} view={view} chat={chat} host={host} focus={focus} onSend={() => { pinned.current = true; }} />
 			</div>
 		</LinkContext>
 	);
@@ -91,14 +91,7 @@ function Welcome({ view, host, chat, icon }: { view: View, host: Host, chat: Cha
 	if (view.notice) {
 		message = <p>{view.notice}</p>;
 	} else if (!view.connected) {
-		// The first attempt usually succeeds at once; the hint appears only if it does not.
-		message = (
-			<div className="delayed">
-				<p>Waiting for the Wingman agent host on this machine.</p>
-				<button type="button" className="button" onClick={() => { host.startHost(); chat.reconnect(); }}>Start Agent Host</button>
-				<p className="hint">If it does not start, see Output → Wingman AI.</p>
-			</div>
-		);
+		message = <HostOffline canStart={view.canStartHost} host={host} chat={chat} />;
 	} else if (!view.agent) {
 		message = <p>This agent host does not offer the Wingman agent.</p>;
 	} else if (view.opening) {
@@ -111,6 +104,18 @@ function Welcome({ view, host, chat, icon }: { view: View, host: Host, chat: Cha
 			{icon && <img className="welcome-icon" src={icon} width={72} height={72} alt="" />}
 			<h1>Wingman</h1>
 			{message}
+		</div>
+	);
+}
+
+function HostOffline({ canStart, host, chat }: { canStart: boolean, host: Host, chat: Chat }) {
+	return (
+		<div className="delayed" role="status">
+			<p>Waiting for the Wingman agent host on this machine.</p>
+			{canStart ? <>
+				<button type="button" className="button" onClick={() => { host.startHost(); chat.reconnect(); }}>Start Agent Host</button>
+				<p className="hint">If it does not start, see Output → Wingman AI.</p>
+			</> : <p className="hint">Run <code>wingman host</code> in a terminal.</p>}
 		</div>
 	);
 }
@@ -382,7 +387,11 @@ function Field({ question, value, onChange }: { question: ChatInputQuestion, val
 				type={numeric ? 'number' : 'text'}
 				className="input"
 				required={question.required}
-				step={question.kind === 'integer' ? 1 : undefined}
+				step={numeric ? question.kind === 'integer' ? 1 : 'any' : undefined}
+				min={numeric ? question.min : undefined}
+				max={numeric ? question.max : undefined}
+				minLength={question.kind === 'text' ? question.min : undefined}
+				maxLength={question.kind === 'text' ? question.max : undefined}
 				value={String(value ?? '')}
 				onChange={event => onChange(event.target.value)}
 			/>
@@ -390,13 +399,13 @@ function Field({ question, value, onChange }: { question: ChatInputQuestion, val
 	);
 }
 
-function Picker({ label, value, options, onChange }: { label: string, value: string, options: Option[], onChange: (value: string) => void }) {
+function Picker({ label, value, options, disabled, onChange }: { label: string, value: string, options: Option[], disabled: boolean, onChange: (value: string) => void }) {
 	if (!options.length) {
 		return null;
 	}
 	return (
 		<span className="picker">
-			<select aria-label={label} title={label} value={value} onChange={event => onChange(event.target.value)}>
+			<select aria-label={label} title={label} value={value} disabled={disabled} onChange={event => onChange(event.target.value)}>
 				{/* The host may run a value it does not list, such as its default. */}
 				{!options.some(option => option.id === value) && <option value={value}>{value || label}</option>}
 				{options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
@@ -405,11 +414,12 @@ function Picker({ label, value, options, onChange }: { label: string, value: str
 	);
 }
 
-function Composer({ view, chat, focus, onSend }: { view: View, chat: Chat, focus: number, onSend: () => void }) {
+function Composer({ view, chat, host, focus, onSend }: { view: View, chat: Chat, host: Host, focus: number, onSend: () => void }) {
 	const [text, setText] = useState('');
 	const input = useRef<HTMLTextAreaElement>(null);
+	const lastFocus = useRef(0);
 	const running = !!view.chat?.activeTurn;
-	const ready = view.connected && !view.notice && !!view.agent && !view.opening;
+	const ready = view.connected && !!view.directory && !!view.agent && !view.opening;
 	const current = settings(view.config, view.agent);
 
 	useLayoutEffect(() => {
@@ -419,7 +429,12 @@ function Composer({ view, chat, focus, onSend }: { view: View, chat: Chat, focus
 			element.style.height = `${Math.min(element.scrollHeight, 240)}px`;
 		}
 	}, [text]);
-	useEffect(() => { input.current?.focus(); }, [focus]);
+	useEffect(() => {
+		if (ready && focus > lastFocus.current) {
+			lastFocus.current = focus;
+			input.current?.focus();
+		}
+	}, [focus, ready]);
 
 	const submit = async () => {
 		const message = text.trim();
@@ -442,6 +457,7 @@ function Composer({ view, chat, focus, onSend }: { view: View, chat: Chat, focus
 
 	return (
 		<footer className="composer">
+			{view.chat && !view.connected && <HostOffline canStart={view.canStartHost} host={host} chat={chat} />}
 			{view.error && (
 				<div className="error" role="alert">
 					<span>{view.error}</span>
@@ -454,18 +470,19 @@ function Composer({ view, chat, focus, onSend }: { view: View, chat: Chat, focus
 					rows={1}
 					value={text}
 					disabled={!ready}
+					readOnly={view.sending}
 					placeholder={running ? 'Queue a follow-up…' : 'Ask Wingman…'}
 					aria-label="Message"
 					onChange={event => setText(event.target.value)}
 					onKeyDown={keyDown}
 				/>
 				<div className="input-toolbar">
-					<Picker label="Model" value={current.model} options={current.models} onChange={value => { void chat.configure('model', value); }} />
-					<Picker label="Mode" value={current.mode} options={current.modes} onChange={value => { void chat.configure('mode', value); }} />
-					<Picker label="Effort" value={current.effort} options={current.efforts} onChange={value => { void chat.configure('effort', value); }} />
+					<Picker label="Model" value={current.model} options={current.models} disabled={!ready || view.sending} onChange={value => { void chat.configure('model', value); }} />
+					<Picker label="Mode" value={current.mode} options={current.modes} disabled={!ready || view.sending} onChange={value => { void chat.configure('mode', value); }} />
+					<Picker label="Effort" value={current.effort} options={current.efforts} disabled={!ready || view.sending} onChange={value => { void chat.configure('effort', value); }} />
 					<span className="spacer" />
 					{running
-						? <button type="button" className="button round" title="Stop" aria-label="Stop" onClick={() => { void chat.cancel(); }}><StopIcon /></button>
+						? <button type="button" className="button round" title="Stop" aria-label="Stop" disabled={!ready} onClick={() => { void chat.cancel(); }}><StopIcon /></button>
 						: <button type="button" className="button round" title="Send" aria-label="Send" disabled={!ready || !text.trim() || view.sending} onClick={() => { void submit(); }}><SendIcon /></button>}
 				</div>
 			</div>

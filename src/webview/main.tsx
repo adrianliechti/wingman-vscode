@@ -25,7 +25,7 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
 	const message = event.data;
 	switch (message.type) {
 		case 'init':
-			chat.init(message.address, message.directory, message.notice);
+			chat.init(message);
 			break;
 		case 'newChat':
 			chat.newChat();
@@ -39,8 +39,8 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
 			break;
 		case 'listSessions':
 			chat.listSessions().then(
-				items => post({ type: 'sessions', items }),
-				error => post({ type: 'sessions', items: [], error: text(error) }),
+				items => post({ type: 'sessions', requestId: message.requestId, items }),
+				error => post({ type: 'sessions', requestId: message.requestId, items: [], error: text(error) }),
 			);
 			break;
 	}

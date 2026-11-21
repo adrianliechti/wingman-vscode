@@ -13,7 +13,7 @@ import {
 	type Snapshot,
 	type StateAction,
 } from '@microsoft/agent-host-protocol';
-import { AhpClient, type AhpTransport } from '@microsoft/agent-host-protocol/client';
+import { AhpClient } from '@microsoft/agent-host-protocol/client';
 import { WebSocketTransport } from '@microsoft/agent-host-protocol/ws';
 
 import { rootChannel } from './values';
@@ -32,7 +32,6 @@ type Observer = {
 	generation: number;
 };
 type PendingAction = {
-	seq: number;
 	resolve: () => void;
 	reject: (error: Error) => void;
 	timer: ReturnType<typeof setTimeout>;
@@ -43,13 +42,10 @@ const actionTimeout = 30_000;
 
 /**
  * One connection to the agent host for every channel the panel watches. The
- * SDK owns RPC and wire types and its reducers own channel state. Actions are
- * read at the transport, in the order the host sent them, so a channel's state
- * never depends on how fast a consumer drains an event queue.
+ * SDK owns RPC and wire types and its reducers own channel state.
  */
 export class Connection {
 	readonly clientId = crypto.randomUUID();
-	root: RootState = { agents: [] };
 	private client?: AhpClient;
 	private generation = 0;
 	private stopped = true;
@@ -137,58 +133,25 @@ export class Connection {
 		const generation = ++this.generation;
 		let client: AhpClient | undefined;
 		try {
-			const transport: AhpTransport = await WebSocketTransport.connect(this.address);
+			const transport = await WebSocketTransport.connect(this.address);
 			if (this.stopped || generation !== this.generation) {
 				await transport.close();
 				return;
 			}
-			const tapped: AhpTransport = {
-				send: message => transport.send(message),
-				close: () => transport.close(),
-				recv: async () => {
-					const frame = await transport.recv();
-					if (!frame || generation !== this.generation) {
-						return frame;
-					}
-					let message;
-					try {
-						message = frame.kind === 'parsed'
-							? frame.message
-							: JSON.parse(frame.kind === 'text' ? frame.text : new TextDecoder().decode(frame.data));
-					} catch {
-						return frame; // the SDK reports malformed frames itself
-					}
-					if (message.method === 'action') {
-						this.action(message.params as ActionEnvelope);
-					}
-					// Hand the SDK the parsed message so it is not parsed twice.
-					return { kind: 'parsed', message };
-				},
-			};
-			client = new AhpClient(tapped);
+			client = new AhpClient(transport);
 			this.client = client;
-			const states = client.stateChanges();
-			void (async () => {
-				for await (const state of states) {
-					if (state.status === 'closed' && generation === this.generation) {
-						this.client = undefined;
-						this.status(false);
-						this.failActions(new Error('Connection lost. Retry after reconnecting.'));
-						this.schedule();
-					}
-				}
-			})();
-			client.connect();
 			const root = this.observe(rootChannel);
 			root.state = undefined;
 			root.pending = [];
 			root.generation = generation;
+			void this.follow(client);
+			client.connect();
 			const result = await client.initialize({
 				clientId: this.clientId,
 				protocolVersions: ['1.1.0', '1.0.0'],
 				initialSubscriptions: [rootChannel],
 			});
-			if (this.stopped || generation !== this.generation) {
+			if (this.client !== client || this.stopped || generation !== this.generation) {
 				return;
 			}
 			const snapshot = result.snapshots?.find(candidate => candidate.resource === rootChannel);
@@ -211,6 +174,28 @@ export class Connection {
 				this.schedule();
 			}
 			throw error;
+		}
+	}
+
+	private async follow(client: AhpClient): Promise<void> {
+		try {
+			for await (const { event } of client.events()) {
+				if (this.client !== client) {
+					return;
+				}
+				if (event.type === 'action') {
+					this.action(event.params);
+				}
+			}
+		} catch {
+			await client.shutdown();
+		} finally {
+			if (this.client === client) {
+				this.client = undefined;
+				this.status(false);
+				this.failActions(new Error('Connection lost. Retry after reconnecting.'));
+				this.schedule();
+			}
 		}
 	}
 
@@ -243,12 +228,7 @@ export class Connection {
 		} else if (this.connected && observer.generation !== this.generation) {
 			void this.attach(uri, observer, this.generation);
 		}
-		let released = false;
 		return () => {
-			if (released) {
-				return;
-			}
-			released = true;
 			observer.listeners.delete(listener);
 			if (onError) {
 				observer.errors.delete(onError);
@@ -261,12 +241,16 @@ export class Connection {
 	}
 
 	private async attach(uri: string, observer: Observer, generation: number): Promise<void> {
+		const client = this.client;
+		if (!client) {
+			return;
+		}
 		observer.generation = generation;
 		observer.state = undefined;
 		observer.pending = [];
 		try {
-			const result = await this.client!.request('subscribe', { channel: uri });
-			if (generation !== this.generation || this.observers.get(uri) !== observer) {
+			const result = await client.request('subscribe', { channel: uri });
+			if (this.client !== client || this.observers.get(uri) !== observer) {
 				return;
 			}
 			if (!result.snapshot) {
@@ -274,7 +258,7 @@ export class Connection {
 			}
 			this.snapshot(result.snapshot, observer);
 		} catch (error) {
-			if (generation === this.generation && this.connected && this.observers.get(uri) === observer) {
+			if (this.client === client && client.connectionState.status === 'connected' && this.observers.get(uri) === observer) {
 				observer.generation = 0;
 				for (const fail of [...observer.errors]) {
 					fail(error instanceof Error ? error : new Error(String(error)));
@@ -283,38 +267,15 @@ export class Connection {
 		}
 	}
 
-	/** The current state of a channel, subscribing to it for as long as that takes. */
-	read<T extends ChannelState>(uri: string): Promise<T> {
-		return new Promise<T>((resolve, reject) => {
-			let release = () => { };
-			let done = false;
-			const finish = (error?: Error, state?: ChannelState) => {
-				if (done) {
-					return;
-				}
-				done = true;
-				clearTimeout(timer);
-				queueMicrotask(() => release());
-				if (error) {
-					reject(error);
-				} else {
-					resolve(state as T);
-				}
-			};
-			const timer = setTimeout(() => finish(new Error('The agent host did not answer. Please retry.')), actionTimeout);
-			release = this.watch(uri, update => finish(undefined, update.state), error => finish(error));
-		});
-	}
-
 	private snapshot(snapshot: Snapshot, observer: Observer): void {
 		observer.state = snapshot.state as ChannelState;
 		observer.seq = snapshot.fromSeq;
-		this.changed(snapshot.resource, observer);
 		const pending = observer.pending;
 		observer.pending = [];
 		for (const action of pending) {
 			this.reduce(action, observer);
 		}
+		this.changed(observer);
 	}
 
 	private action(envelope: ActionEnvelope): void {
@@ -324,14 +285,14 @@ export class Connection {
 			if (pending) {
 				this.actions.delete(envelope.origin.clientSeq);
 				clearTimeout(pending.timer);
-				if (envelope.rejectionReason) {
+				if (envelope.rejectionReason !== undefined) {
 					pending.reject(new Error(envelope.rejectionReason));
 				} else {
 					pending.resolve();
 				}
 			}
 		}
-		if (envelope.rejectionReason) {
+		if (envelope.rejectionReason !== undefined) {
 			return;
 		}
 		const observer = this.observers.get(envelope.channel);
@@ -339,7 +300,11 @@ export class Connection {
 			return;
 		}
 		if (observer.state) {
+			const previous = observer.state;
 			this.reduce(envelope, observer);
+			if (observer.state !== previous) {
+				this.changed(observer);
+			}
 		} else if (observer.pending.length < 4096) {
 			observer.pending.push(envelope);
 		} else {
@@ -360,22 +325,22 @@ export class Connection {
 			observer.state = sessionReducer(observer.state as SessionState, action as SessionAction);
 		}
 		observer.seq = envelope.serverSeq;
-		this.changed(channel, observer);
 	}
 
-	private changed(uri: string, observer: Observer): void {
-		if (uri === rootChannel) {
-			this.root = observer.state as RootState;
+	private changed(observer: Observer): void {
+		if (!observer.state) {
+			return;
 		}
+		const update = { state: observer.state, connection: this.generation };
 		for (const listener of [...observer.listeners]) {
-			listener({ state: observer.state!, connection: this.generation });
+			listener(update);
 		}
 	}
 
 	private async open(): Promise<AhpClient> {
 		await this.ready();
 		// The connection can close between ready() settling and this continuation.
-		if (!this.client) {
+		if (!this.connected || !this.client) {
 			throw new Error('Connection lost. Retry after reconnecting.');
 		}
 		return this.client;
@@ -394,7 +359,7 @@ export class Connection {
 				this.actions.delete(seq);
 				reject(new Error('The agent host did not confirm the action. Please retry.'));
 			}, actionTimeout);
-			this.actions.set(seq, { seq, resolve, reject, timer });
+			this.actions.set(seq, { resolve, reject, timer });
 			try {
 				client.dispatch(channel, action, seq);
 			} catch (error) {

@@ -218,9 +218,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (!vscode.workspace.isTrusted) {
 			throw new Error('Trust this workspace before starting the agent host.');
 		}
-		const [major, minor] = vscode.version.split('.').map(Number);
-		if (major < 1 || (major === 1 && minor < 144)) {
-			throw new Error('Wingman AHP requires VS Code 1.144 or later. Model sync remains available on this version.');
+		if (!supportsAgentHostVersion()) {
+			throw new Error('Starting the agent host from VS Code requires version 1.144 or later. Run wingman host in a terminal to use the Wingman panel.');
 		}
 		const setting = registeredSetting();
 		if (!setting) {
@@ -382,6 +381,15 @@ export class WingmanAgentHost implements vscode.Disposable {
 
 function autoStartEnabled(): boolean {
 	return vscode.workspace.getConfiguration('wingman').get<boolean>('agentHost.autoStart', true);
+}
+
+function supportsAgentHostVersion(): boolean {
+	const [major, minor] = vscode.version.split('.').map(Number);
+	return major > 1 || (major === 1 && minor >= 144);
+}
+
+export function supportsManagedHost(): boolean {
+	return supportsAgentHostVersion() && registeredSetting() !== undefined;
 }
 
 /** Whether VS Code Chat connects to agent hosts; the Wingman panel does either way. */

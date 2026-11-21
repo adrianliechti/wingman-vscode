@@ -12,15 +12,15 @@ export type SessionItem = {
 
 export type ToWebview =
 	/** `directory` is the workspace folder's file URI; `notice` says why there is none. */
-	| { type: 'init', address: string, directory?: string, notice?: string }
+	| { type: 'init', address: string, canStartHost: boolean, directory?: string, notice?: string }
 	| { type: 'newChat' }
-	| { type: 'listSessions' }
+	| { type: 'listSessions', requestId: number }
 	| { type: 'openSession', uri: string };
 
 export type FromWebview =
 	| { type: 'ready' }
 	| { type: 'startHost' }
-	| { type: 'sessions', items: SessionItem[], error?: string }
+	| { type: 'sessions', requestId: number, items: SessionItem[], error?: string }
 	/** The open session's title, shown beside the view's name. */
 	| { type: 'title', title: string }
 	| { type: 'openFile', uri: string, line?: number }

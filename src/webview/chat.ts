@@ -1,16 +1,18 @@
-import type {
-	AgentInfo,
-	ChatInputAnswer,
-	ChatInputRequest,
-	ChatState,
-	RootState,
-	SessionConfigPropertySchema,
-	SessionState,
-	SessionSummary,
+import {
+	AhpErrorCodes,
+	type AgentInfo,
+	type ChatInputAnswer,
+	type ChatInputRequest,
+	type ChatState,
+	type RootState,
+	type SessionConfigPropertySchema,
+	type SessionState,
+	type SessionSummary,
+	type StateAction,
 } from '@microsoft/agent-host-protocol';
 import { RpcError } from '@microsoft/agent-host-protocol/client';
 
-import type { SessionItem } from '../chatProtocol';
+import type { SessionItem, ToWebview } from '../chatProtocol';
 import { Connection } from './connection';
 import {
 	ActionType,
@@ -26,8 +28,6 @@ import {
 	rootChannel,
 } from './values';
 
-const sessionAlreadyExists = -32003;
-
 export type Config = {
 	properties: Record<string, SessionConfigPropertySchema>;
 	values: Record<string, unknown>;
@@ -38,6 +38,7 @@ export type View = {
 	directory?: string;
 	/** Why no session can start here, such as a window without a folder. */
 	notice?: string;
+	canStartHost: boolean;
 	connected: boolean;
 	/** Wingman's own agent, once the host listed it. */
 	agent?: AgentInfo;
@@ -46,6 +47,7 @@ export type View = {
 	/** A saved session is being opened. */
 	opening: boolean;
 	sending: boolean;
+	composerKey: number;
 	/** The settings of the open chat, or those a new one starts with. */
 	config?: Config;
 	error?: string;
@@ -55,14 +57,14 @@ type Saved = { sessions?: Record<string, string>, projects?: Record<string, stri
 
 /** The panel's one chat: its connection, its open session and what the user does with it. */
 export class Chat {
-	private view: View = { connected: false, opening: false, sending: false };
+	private view: View = { canStartHost: false, connected: false, opening: false, sending: false, composerKey: 0 };
 	private listeners = new Set<() => void>();
 	private connection?: Connection;
 	private address?: string;
 	private directory?: string;
 	private sessionUri?: string;
-	private chatUri?: string;
 	private release = () => { };
+	private selection = 0;
 	/** Settings chosen before the chat exists. */
 	private draft: Record<string, unknown> = {};
 	private resolving = 0;
@@ -102,15 +104,41 @@ export class Chat {
 		this.storage.setState({ ...saved, sessions });
 	}
 
-	init(address: string, directory: string | undefined, notice: string | undefined): void {
-		if (address !== this.address) {
-			this.connection?.stop();
-			this.address = address;
+	init({ address, directory, notice, canStartHost }: Extract<ToWebview, { type: 'init' }>): void {
+		if (address === this.address && directory === this.directory && notice === this.view.notice) {
+			return;
+		}
+		this.close();
+		this.directory = directory;
+		this.draft = {};
+		if (address !== this.address || !directory) {
+			const previous = this.connection;
+			this.connection = undefined;
+			previous?.stop();
+		}
+		this.address = address;
+		this.set({
+			directory,
+			notice,
+			canStartHost,
+			error: undefined,
+			connected: this.connection?.isConnected() ?? false,
+			agent: this.connection ? this.view.agent : undefined,
+			composerKey: this.view.composerKey + 1,
+		});
+		if (!directory) {
+			return;
+		}
+		if (!this.connection) {
 			const connection = new Connection(address);
 			this.connection = connection;
 			connection.onStatus(() => {
-				this.set({ connected: connection.isConnected() });
-				if (connection.isConnected()) {
+				if (this.connection !== connection) {
+					return;
+				}
+				const connected = connection.isConnected();
+				this.set({ connected, opening: !connected && this.sessionUri ? true : this.view.opening });
+				if (connected) {
 					void this.resolveDraft();
 				}
 			});
@@ -122,16 +150,25 @@ export class Chat {
 			});
 			connection.start();
 		}
-		if (directory !== this.directory || notice !== this.view.notice) {
-			this.close();
-			this.directory = directory;
-			this.draft = {};
-			this.set({ directory, notice, error: undefined, config: undefined });
-			const last = directory ? this.saved().sessions?.[directory] : undefined;
-			if (last) {
-				this.open(last).catch(() => { });
-			} else {
-				void this.resolveDraft();
+		const last = this.saved().sessions?.[directory];
+		if (last) {
+			void this.open(last).catch(() => { });
+		} else {
+			void this.resolveDraft();
+		}
+	}
+
+	private async dispatch(chat: ChatState, action: StateAction, showError = () => true): Promise<void> {
+		const connection = this.connection;
+		if (!connection?.isConnected() || this.view.opening || chat.resource !== this.view.chat?.resource) {
+			return;
+		}
+		const selection = this.selection;
+		try {
+			await connection.dispatch(chat.resource, action);
+		} catch (error) {
+			if (selection === this.selection && showError()) {
+				this.set({ error: text(error) });
 			}
 		}
 	}
@@ -146,24 +183,28 @@ export class Chat {
 	}
 
 	private close(): void {
+		++this.selection;
+		++this.resolving;
 		this.release();
 		this.release = () => { };
 		this.sessionUri = undefined;
-		this.chatUri = undefined;
-		this.set({ session: undefined, chat: undefined, opening: false });
+		this.set({ session: undefined, chat: undefined, config: undefined, opening: false, sending: false });
 	}
 
 	newChat(): void {
 		this.close();
 		this.remember();
 		this.draft = {};
-		this.set({ error: undefined, config: undefined });
+		this.set({ error: undefined, composerKey: this.view.composerKey + 1 });
 		void this.resolveDraft();
 	}
 
 	openSession(uri: string): void {
-		if (uri !== this.sessionUri) {
-			this.open(uri).catch(() => { });
+		if (this.directory && uri !== this.sessionUri) {
+			this.close();
+			this.draft = {};
+			this.set({ composerKey: this.view.composerKey + 1 });
+			void this.open(uri).catch(() => { });
 		}
 	}
 
@@ -173,7 +214,7 @@ export class Chat {
 		if (!connection) {
 			return Promise.reject(new Error('Not connected to the agent host.'));
 		}
-		this.close();
+		const selection = this.selection;
 		this.sessionUri = uri;
 		this.remember();
 		this.set({ opening: true, error: undefined });
@@ -182,16 +223,25 @@ export class Chat {
 			let chat: ChatState | undefined;
 			let sessionConnection = -1;
 			let chatConnection = -2;
+			let chatUri: string | undefined;
 			let releaseChat = () => { };
-			const current = () => this.sessionUri === uri;
-			const gone = (message: string) => {
+			const current = () => this.selection === selection;
+			const gone = (message: string, forget: boolean) => {
 				if (!current()) {
 					return;
 				}
-				this.newChat();
-				this.set({ error: message });
 				reject(new Error(message));
+				this.close();
+				if (forget) {
+					this.remember();
+				}
+				this.set({ error: message });
+				void this.resolveDraft();
 			};
+			const failed = (error: Error) => gone(
+				`Could not open the session: ${error.message}`,
+				error instanceof RpcError && error.code === AhpErrorCodes.SessionNotFound,
+			);
 			const update = () => {
 				// States of two connections describe different moments.
 				if (!current() || !session || !chat || sessionConnection !== chatConnection) {
@@ -201,33 +251,46 @@ export class Chat {
 				resolve();
 			};
 			const releaseSession = connection.watch(uri, next => {
+				if (!current()) {
+					return;
+				}
 				session = next.state as SessionState;
 				sessionConnection = next.connection;
+				if (session.lifecycle === 'creating') {
+					return;
+				}
+				if (session.lifecycle === 'failed' || session.creationError) {
+					gone(session.creationError?.message ?? 'The agent host could not create this session.', true);
+					return;
+				}
+				const defaultChat = session.defaultChat ?? sessionToChat(uri);
+				if (!session.chats.some(summary => summary.resource === defaultChat)) {
+					gone('This session no longer has a default chat.', true);
+					return;
+				}
 				if (session.project?.uri && this.directory) {
 					const saved = this.saved();
-					this.storage.setState({ ...saved, projects: { ...saved.projects, [this.directory]: session.project.uri } });
+					if (saved.projects?.[this.directory] !== session.project.uri) {
+						this.storage.setState({ ...saved, projects: { ...saved.projects, [this.directory]: session.project.uri } });
+					}
 				}
-				if (!this.chatUri && current()) {
-					const chatUri = session.defaultChat ?? sessionToChat(uri);
-					this.chatUri = chatUri;
+				if (chatUri !== defaultChat) {
+					releaseChat();
+					chat = undefined;
+					chatUri = defaultChat;
+					this.set({ opening: true });
 					releaseChat = connection.watch(chatUri, nextChat => {
 						chat = nextChat.state as ChatState;
 						chatConnection = nextChat.connection;
 						update();
-					}, error => gone(`Could not open the session: ${error.message}`));
+					}, failed);
 				}
-				// A disposed session lists no chats.
-				if (this.chatUri && !session.chats.some(summary => summary.resource === this.chatUri)) {
-					gone('This session was deleted.');
-				} else if (session.creationError) {
-					gone(session.creationError.message);
-				} else {
-					update();
-				}
-			}, error => gone(`Could not open the session: ${error.message}`));
+				update();
+			}, failed);
 			const release = () => {
 				releaseSession();
 				releaseChat();
+				reject(new Error('The session selection changed.'));
 			};
 			// The session may have been given up while its first state arrived.
 			if (current()) {
@@ -262,40 +325,34 @@ export class Chat {
 		}
 	}
 
-	private async create(): Promise<void> {
-		const connection = this.connection!;
-		const uri = `ahp-session:/${crypto.randomUUID()}`;
-		try {
-			await connection.request('createSession', {
-				channel: uri,
-				provider,
-				workingDirectories: [this.directory!],
-				...(Object.keys(this.draft).length ? { config: this.draft } : {}),
-			});
-		} catch (error) {
-			// A repeated request finds the session the first one created.
-			if (!(error instanceof RpcError && error.code === sessionAlreadyExists)) {
-				throw error;
-			}
-		}
-		await this.open(uri);
-	}
-
 	async send(message: string): Promise<boolean> {
 		const connection = this.connection;
-		if (!connection || !this.directory || this.view.sending) {
+		const directory = this.directory;
+		if (!connection?.isConnected() || !directory || this.view.sending || this.view.opening) {
 			return false;
 		}
+		const selection = this.selection;
 		this.set({ sending: true, error: undefined });
 		try {
 			if (!this.sessionUri) {
-				await this.create();
+				const uri = `ahp-session:/${crypto.randomUUID()}`;
+				await connection.request('createSession', {
+					channel: uri,
+					provider,
+					workingDirectories: [directory],
+					config: this.draft,
+				});
+				if (selection !== this.selection) {
+					return false;
+				}
+				await this.open(uri);
 			}
-			if (!this.chatUri) {
-				throw new Error('The session is still opening. Please retry.');
+			const chat = this.view.chat;
+			if (selection !== this.selection || !chat || this.view.opening) {
+				return false;
 			}
 			// A chat that runs a turn keeps the message until that turn ends.
-			await connection.dispatch(this.chatUri, {
+			await connection.dispatch(chat.resource, {
 				type: ActionType.ChatPendingMessageSet,
 				kind: PendingMessageKind.Queued,
 				id: crypto.randomUUID(),
@@ -303,10 +360,14 @@ export class Chat {
 			});
 			return true;
 		} catch (error) {
-			this.set({ error: text(error) });
+			if (selection === this.selection) {
+				this.set({ error: text(error) });
+			}
 			return false;
 		} finally {
-			this.set({ sending: false });
+			if (selection === this.selection) {
+				this.set({ sending: false });
+			}
 		}
 	}
 
@@ -317,14 +378,8 @@ export class Chat {
 		if (!chat || !turnId) {
 			return;
 		}
-		try {
-			await this.connection!.dispatch(chat.resource, { type: ActionType.ChatTurnCancelled, turnId, duration: 0 });
-		} catch (error) {
-			// Stopping succeeded if the turn ended first.
-			if (this.view.chat?.activeTurn?.id === turnId) {
-				this.set({ error: text(error) });
-			}
-		}
+		await this.dispatch(chat, { type: ActionType.ChatTurnCancelled, turnId, duration: 0 },
+			() => this.view.chat?.activeTurn?.id === turnId);
 	}
 
 	/** Answers a tool call that waits for approval, with one of its options if it has any. */
@@ -339,19 +394,15 @@ export class Chat {
 		const option = options.find(candidate => candidate.id === optionId)
 			?? options.find(candidate => candidate.kind === (approve ? 'approve' : 'deny'));
 		const approved = option ? option.kind === 'approve' : approve;
-		try {
-			await this.connection!.dispatch(chat.resource, {
-				type: ActionType.ChatToolCallConfirmed,
-				turnId: turn.id,
-				toolCallId,
-				...(approved
-					? { approved: true, confirmed: ToolCallConfirmationReason.UserAction }
-					: { approved: false, reason: ToolCallCancellationReason.Denied }),
-				...(option ? { selectedOptionId: option.id } : {}),
-			});
-		} catch (error) {
-			this.set({ error: text(error) });
-		}
+		await this.dispatch(chat, {
+			type: ActionType.ChatToolCallConfirmed,
+			turnId: turn.id,
+			toolCallId,
+			...(approved
+				? { approved: true, confirmed: ToolCallConfirmationReason.UserAction }
+				: { approved: false, reason: ToolCallCancellationReason.Denied }),
+			...(option ? { selectedOptionId: option.id } : {}),
+		});
 	}
 
 	/** Answers a question of the agent, or declines it when `content` is omitted. */
@@ -360,16 +411,12 @@ export class Chat {
 		if (!chat) {
 			return;
 		}
-		try {
-			await this.connection!.dispatch(chat.resource, {
-				type: ActionType.ChatInputCompleted,
-				requestId: request.id,
-				response: content ? ChatInputResponseKind.Accept : ChatInputResponseKind.Decline,
-				answers: inputAnswers(request, content ?? {}),
-			});
-		} catch (error) {
-			this.set({ error: text(error) });
-		}
+		await this.dispatch(chat, {
+			type: ActionType.ChatInputCompleted,
+			requestId: request.id,
+			response: content ? ChatInputResponseKind.Accept : ChatInputResponseKind.Decline,
+			answers: inputAnswers(request, content ?? {}),
+		});
 	}
 
 	async configure(name: string, value: unknown): Promise<void> {
@@ -382,11 +429,7 @@ export class Chat {
 			await this.resolveDraft();
 			return;
 		}
-		try {
-			await this.connection!.dispatch(chat.resource, { type: ActionType.ChatConfigChanged, config: { [name]: value } });
-		} catch (error) {
-			this.set({ error: text(error) });
-		}
+		await this.dispatch(chat, { type: ActionType.ChatConfigChanged, config: { [name]: value } });
 	}
 
 	/** Wingman's sessions of this folder, newest first. */
@@ -403,7 +446,6 @@ export class Chat {
 			[summary.project?.uri, ...(summary.workingDirectories ?? [])].some(uri => uri !== undefined && folders.includes(pathOf(uri)));
 		return result.items
 			.filter(summary => summary.provider === provider && here(summary))
-			.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))
 			.map(summary => ({
 				uri: summary.resource,
 				title: summary.title,
