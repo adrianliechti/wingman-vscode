@@ -12,7 +12,8 @@ import {
 } from '@microsoft/agent-host-protocol';
 import { RpcError } from '@microsoft/agent-host-protocol/client';
 
-import type { SessionItem, ToWebview } from '../chatProtocol';
+import type { FileAttachment, SessionItem, ToWebview } from '../chatProtocol';
+import { toMessageAttachment } from './attachments';
 import { Connection } from './connection';
 import {
 	ActionType,
@@ -43,6 +44,7 @@ export type View = {
 	/** Wingman's own agent, once the host listed it. */
 	agent?: AgentInfo;
 	session?: SessionState;
+	sessionUri?: string;
 	chat?: ChatState;
 	/** A saved session is being opened. */
 	opening: boolean;
@@ -188,7 +190,7 @@ export class Chat {
 		this.release();
 		this.release = () => { };
 		this.sessionUri = undefined;
-		this.set({ session: undefined, chat: undefined, config: undefined, opening: false, sending: false });
+		this.set({ session: undefined, sessionUri: undefined, chat: undefined, config: undefined, opening: false, sending: false });
 	}
 
 	newChat(): void {
@@ -247,7 +249,7 @@ export class Chat {
 				if (!current() || !session || !chat || sessionConnection !== chatConnection) {
 					return;
 				}
-				this.set({ session, chat, opening: false, config: liveConfig(session, chat) });
+				this.set({ session, sessionUri: uri, chat, opening: false, config: liveConfig(session, chat) });
 				resolve();
 			};
 			const releaseSession = connection.watch(uri, next => {
@@ -325,7 +327,7 @@ export class Chat {
 		}
 	}
 
-	async send(message: string): Promise<boolean> {
+	async send(message: string, files: FileAttachment[] = []): Promise<boolean> {
 		const connection = this.connection;
 		const directory = this.directory;
 		if (!connection?.isConnected() || !directory || this.view.sending || this.view.opening) {
@@ -356,7 +358,11 @@ export class Chat {
 				type: ActionType.ChatPendingMessageSet,
 				kind: PendingMessageKind.Queued,
 				id: crypto.randomUUID(),
-				message: { text: message, origin: { kind: MessageKind.User } },
+				message: {
+					text: message,
+					origin: { kind: MessageKind.User },
+					...(files.length ? { attachments: files.map(toMessageAttachment) } : {}),
+				},
 			});
 			return true;
 		} catch (error) {
@@ -367,6 +373,20 @@ export class Chat {
 		} finally {
 			if (selection === this.selection) {
 				this.set({ sending: false });
+			}
+		}
+	}
+
+	async renameSession(uri: string, title: string): Promise<void> {
+		const connection = this.connection;
+		if (!connection?.isConnected() || this.view.opening || this.view.sessionUri !== uri) {
+			return;
+		}
+		try {
+			await connection.dispatch(uri, { type: ActionType.SessionTitleChanged, title });
+		} catch (error) {
+			if (this.view.sessionUri === uri) {
+				this.set({ error: text(error) });
 			}
 		}
 	}
@@ -451,6 +471,7 @@ export class Chat {
 				title: summary.title,
 				modifiedAt: summary.modifiedAt,
 				running: (summary.status & SessionStatus.InProgress) !== 0,
+				waiting: (summary.status & SessionStatus.InputNeeded) === SessionStatus.InputNeeded,
 				current: summary.resource === this.sessionUri,
 			}));
 	}

@@ -615,10 +615,90 @@ pre.plain {
 }
 
 .input-box {
+	position: relative;
 	padding: 7px 6px 5px 9px;
 	border: 1px solid var(--vscode-input-border, var(--border));
 	border-radius: 8px;
 	background: var(--vscode-input-background);
+}
+
+.attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 0 0 6px;
+	padding: 0;
+	list-style: none;
+	white-space: normal;
+}
+
+.user .attachments {
+	margin: 6px 0 0;
+}
+
+.attachment {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	max-width: 100%;
+	min-width: 0;
+	padding: 2px 5px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font-size: 0.9em;
+}
+
+.attachment :is(a, span) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.attachment .icon-button {
+	width: 20px;
+	height: 20px;
+	padding: 2px;
+}
+
+.file-suggestions {
+	position: absolute;
+	z-index: 1;
+	inset-inline: 0;
+	bottom: calc(100% + 4px);
+	overflow: auto;
+	max-height: min(220px, 42vh);
+	border: 1px solid var(--vscode-editorSuggestWidget-border, var(--border));
+	border-radius: 5px;
+	background: var(--vscode-editorSuggestWidget-background);
+	color: var(--vscode-editorSuggestWidget-foreground);
+}
+
+.file-suggestions ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.file-suggestions li,
+.file-search-status {
+	padding: 4px 8px;
+}
+
+.file-suggestions li {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.file-suggestions li[aria-selected="true"] {
+	background: var(--vscode-editorSuggestWidget-selectedBackground);
+	color: var(--vscode-editorSuggestWidget-selectedForeground);
+}
+
+.file-suggestions li:hover {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
 }
 
 .input-box:focus-within {

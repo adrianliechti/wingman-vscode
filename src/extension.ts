@@ -46,6 +46,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('wingman.openChat', () => vscode.commands.executeCommand(`${chatViewId}.focus`)),
 		vscode.commands.registerCommand('wingman.newChat', () => chatView.newChat()),
 		vscode.commands.registerCommand('wingman.chatHistory', () => chatView.showHistory()),
+		vscode.commands.registerCommand('wingman.renameSession', () => chatView.renameSession()),
 		vscode.commands.registerCommand('wingman.syncModels', () => syncModels(context, logger, utilityModels, true)),
 		vscode.commands.registerCommand('wingman.startAgentHost', () => agentHost?.start()),
 		vscode.commands.registerCommand('wingman.stopAgentHost', () => agentHost?.stop()),

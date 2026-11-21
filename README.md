@@ -67,9 +67,10 @@ The **Wingman** view in the Secondary Side Bar is a chat with Wingman's own agen
 
 - Sessions work in the window's first folder, which must be local and trusted.
 - Choose the model, the mode (Agent or Plan) and the reasoning effort below the message box. A new chat starts with the agent's defaults.
+- Type `@` or click the paperclip to open the workspace file picker. Choose the current file or selection from the picker when an editor is open. Selections and unsaved edits use the text captured when you attach them. Attached files appear in the composer and the transcript.
 - Press Enter to send and Shift+Enter for a new line. A message sent while the agent works is queued until the turn ends; the stop button ends the turn and drops queued messages.
 - Approvals and questions from the agent appear in the transcript. Tool calls and the agent's reasoning are folded; select one to see its input, output and files.
-- **New Chat** and **Show Chat History** in the view's title bar start a session or reopen one of this folder's. The panel shows the last open session again after a reload.
+- **New Chat** and **Show Chat History** in the view's title bar start a session or reopen one of this folder's. History shows the current session and highlights sessions that are running or waiting for input. Use **Rename Session** in the view menu to name the open session. The panel shows the last open session again after a reload.
 
 The panel connects to the shared agent host at `ws://localhost:9100/ahp`, so its sessions are the ones VS Code Chat, the Agents window and Wingman's other clients show, and an approval answered in one of them is answered for all. If the host is offline, use **Start Agent Host** in the panel when available. In VS Code versions before 1.144, run `wingman host` in a terminal without a token.
 

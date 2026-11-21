@@ -94,6 +94,11 @@
         "icon": "$(history)"
       },
       {
+        "command": "wingman.renameSession",
+        "title": "Rename Session",
+        "category": "Wingman"
+      },
+      {
         "command": "wingman.syncModels",
         "title": "Sync Models",
         "category": "Wingman"
@@ -120,6 +125,10 @@
           "command": "wingman.chatHistory",
           "when": "view == wingman.chat",
           "group": "navigation@2"
+        },
+        {
+          "command": "wingman.renameSession",
+          "when": "view == wingman.chat"
         }
       ]
     }

@@ -1,8 +1,12 @@
 import * as assert from 'node:assert';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 
 import type { FromWebview, ToWebview } from '../chatProtocol';
 import { WingmanChatView } from '../chatView';
+import { editorAttachment, editorReference } from '../fileContext';
 
 const extensionUri = vscode.Uri.file('/extensions/wingman');
 
@@ -51,7 +55,7 @@ suite('Wingman chat view', () => {
 		await vscode.extensions.getExtension('adrianliechti.wingman-vscode')?.activate();
 		const commands = await vscode.commands.getCommands(true);
 		// VS Code adds the focus command only for a view whose container it accepted.
-		for (const command of ['wingman.chat.focus', 'wingman.openChat', 'wingman.newChat', 'wingman.chatHistory']) {
+		for (const command of ['wingman.chat.focus', 'wingman.openChat', 'wingman.newChat', 'wingman.chatHistory', 'wingman.renameSession']) {
 			assert.ok(commands.includes(command), `${command} is not registered`);
 		}
 	});
@@ -116,5 +120,43 @@ suite('Wingman chat view', () => {
 		assert.strictEqual(view.description, 'Fix the login test');
 		await send({ type: 'title', title: '' });
 		assert.strictEqual(view.description, undefined);
+	});
+
+	test('captures selected editor text and the zero-based range, including unsaved changes', async () => {
+		const path = await mkdtemp(join(tmpdir(), 'wingman-editor-'));
+		try {
+			const folder = { uri: vscode.Uri.file(path), name: 'Workspace', index: 0 };
+			const uri = vscode.Uri.joinPath(folder.uri, 'example.ts');
+			await writeFile(uri.fsPath, 'Old contents');
+			const selection = new vscode.Selection(1, 0, 2, 0);
+			const editor = {
+				document: {
+					uri,
+					isDirty: true,
+					getText(range?: vscode.Range) {
+						assert.strictEqual(range, selection);
+						return 'const value = "é";\n';
+					},
+				},
+				selection,
+			} as vscode.TextEditor;
+			const reference = editorReference(folder, editor);
+			assert.ok(reference);
+			assert.strictEqual(reference.snapshot, undefined, 'the picker previews a selection without reading its contents');
+			assert.strictEqual(editorReference(folder, undefined), undefined);
+			const attachment = await editorAttachment(folder, editor, reference.uri);
+			assert.deepStrictEqual(attachment, {
+				uri: uri.toString(),
+				label: 'example.ts',
+				selection: { range: { start: { line: 1, character: 0 }, end: { line: 2, character: 0 } } },
+				snapshot: Buffer.from('const value = "é";\n').toString('base64'),
+			});
+			const saved = { ...editor, selection: new vscode.Selection(0, 0, 0, 0), document: { ...editor.document, isDirty: false } };
+			assert.deepStrictEqual(await editorAttachment(folder, saved, reference.uri), { uri: uri.toString(), label: 'example.ts' });
+			assert.strictEqual(editorReference({ ...folder, uri: vscode.Uri.joinPath(folder.uri, 'unrelated') }, editor), undefined);
+			await assert.rejects(editorAttachment(folder, editor, 'file:///another-editor.ts'), /The active editor changed/);
+		} finally {
+			await rm(path, { recursive: true, force: true });
+		}
 	});
 });

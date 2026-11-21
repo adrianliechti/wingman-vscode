@@ -9,12 +9,18 @@ export const ActionType = {
 	ChatToolCallConfirmed: 'chat/toolCallConfirmed' as Protocol.ActionType.ChatToolCallConfirmed,
 	ChatInputCompleted: 'chat/inputCompleted' as Protocol.ActionType.ChatInputCompleted,
 	ChatConfigChanged: 'chat/configChanged' as Protocol.ActionType.ChatConfigChanged,
+	SessionTitleChanged: 'session/titleChanged' as Protocol.ActionType.SessionTitleChanged,
 };
 export const SessionStatus = {
 	InProgress: 8 as Protocol.SessionStatus.InProgress,
+	InputNeeded: 24 as Protocol.SessionStatus.InputNeeded,
 };
 export const MessageKind = {
 	User: 'user' as Protocol.MessageKind.User,
+};
+export const MessageAttachmentKind = {
+	Resource: 'resource' as Protocol.MessageAttachmentKind.Resource,
+	EmbeddedResource: 'embeddedResource' as Protocol.MessageAttachmentKind.EmbeddedResource,
 };
 export const PendingMessageKind = {
 	Queued: 'queued' as Protocol.PendingMessageKind.Queued,

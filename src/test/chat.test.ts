@@ -4,15 +4,16 @@ import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { buildSync } from 'esbuild';
 
-import type { ToWebview } from '../chatProtocol';
+import type { FileAttachment, ToWebview } from '../chatProtocol';
 
-type Request = { id: number, method: string, params: { channel: string, clientId?: string, clientSeq?: number, action?: { id: string } } };
+type Request = { id: number, method: string, params: { channel: string, clientId?: string, clientSeq?: number, action?: { id?: string, message?: { attachments: unknown[] } } } };
 type Chat = {
 	init(message: Extract<ToWebview, { type: 'init' }>): void;
-	getView(): { connected: boolean, opening: boolean, sending: boolean, error?: string, chat?: { resource: string, queuedMessages?: { id: string }[] } };
+	getView(): { connected: boolean, opening: boolean, sending: boolean, error?: string, session?: { title: string }, chat?: { resource: string, queuedMessages?: { id: string }[] } };
 	newChat(): void;
 	reconnect(): void;
-	send(message: string): Promise<boolean>;
+	renameSession(uri: string, title: string): Promise<void>;
+	send(message: string, files?: FileAttachment[]): Promise<boolean>;
 };
 
 const root = 'ahp-root://';
@@ -69,6 +70,13 @@ suite('Wingman chat client', () => {
 			}
 			reply(request: Request, result: object) {
 				this.message({ id: request.id, result });
+			}
+			echo(request: Request, serverSeq: number) {
+				const { channel, action, clientSeq } = request.params;
+				this.message({ method: 'action', params: {
+					channel, action, serverSeq,
+					origin: { clientId: this.request('initialize').params.clientId, clientSeq },
+				} });
 			}
 			snapshot(channel: string, state: object, fromSeq = 0) {
 				this.reply(this.request('subscribe', channel), { snapshot: { resource: channel, state, fromSeq } });
@@ -156,15 +164,7 @@ suite('Wingman chat client', () => {
 			socket.snapshot(channel, chatState);
 			await flush();
 			const dispatch = socket.request('dispatchAction', channel);
-			socket.message({
-				method: 'action',
-				params: {
-					channel,
-					action: dispatch.params.action,
-					origin: { clientId: socket.request('initialize').params.clientId, clientSeq: dispatch.params.clientSeq },
-					serverSeq: 1,
-				},
-			});
+			socket.echo(dispatch, 1);
 			assert.equal(await sent, true);
 			assert.equal(chat.getView().chat?.queuedMessages?.[0].id, dispatch.params.action?.id);
 
@@ -184,6 +184,52 @@ suite('Wingman chat client', () => {
 			assert.equal(chat.getView().opening, false);
 			assert.equal(chat.getView().chat?.resource, channel);
 			assert.equal(chat.getView().chat?.queuedMessages, undefined);
+		} finally {
+			dispose();
+		}
+	});
+
+	test('sends resource and snapshot attachments and renames the selected session on its own channel', async () => {
+		const { chat, sockets, init, dispose } = fixture();
+		try {
+			init();
+			await flush();
+			const socket = sockets[0];
+			const selection = { range: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } } };
+			const sent = chat.send('Review these files', [
+				{ label: 'src/first file.ts', uri: 'file:///project/src/first%20file.ts' },
+				{ label: 'src/example.ts', uri: 'file:///project/src/example.ts', selection, snapshot: 'Y29kZQ==' },
+			]);
+			await flush();
+			const create = socket.request('createSession');
+			const session = create.params.channel;
+			const channel = session.replace('ahp-session:', 'ahp-chat:');
+			socket.reply(create, {});
+			await flush();
+			socket.snapshot(session, { lifecycle: 'ready', title: 'New session', defaultChat: channel, chats: [{ resource: channel }] });
+			await flush();
+			socket.snapshot(channel, { resource: channel, turns: [] });
+			await flush();
+			const send = socket.request('dispatchAction', channel);
+			assert.deepStrictEqual(send.params.action?.message?.attachments, [
+				{ type: 'resource', label: 'src/first file.ts', displayKind: 'document', uri: 'file:///project/src/first%20file.ts' },
+				{
+					type: 'embeddedResource', displayKind: 'selection', label: 'src/example.ts:L3–L4',
+					selection, data: 'Y29kZQ==', contentType: 'text/plain', _meta: { 'wingman.sourceUri': 'file:///project/src/example.ts' },
+				},
+			]);
+			socket.echo(send, 1);
+			assert.equal(await sent, true);
+
+			await chat.renameSession('ahp-session:/old', 'Ignore this');
+			assert.equal(socket.requests.filter(request => request.method === 'dispatchAction').length, 1);
+			const renamed = chat.renameSession(session, 'Attachment review');
+			await flush();
+			const rename = socket.request('dispatchAction', session);
+			assert.deepStrictEqual(rename.params.action, { type: 'session/titleChanged', title: 'Attachment review' });
+			socket.echo(rename, 2);
+			await renamed;
+			assert.equal(chat.getView().session?.title, 'Attachment review');
 		} finally {
 			dispose();
 		}

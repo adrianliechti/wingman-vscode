@@ -2,22 +2,25 @@ import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 
 import { hostAddress, supportsManagedHost } from './agentHost';
-import type { FromWebview, SessionItem, ToWebview } from './chatProtocol';
+import type { FileSearch, FromWebview, SessionItem, ToWebview } from './chatProtocol';
+import { editorAttachment, editorReference, findWorkspaceFiles } from './fileContext';
 
 export const chatViewId = 'wingman.chat';
 
-type SessionPick = vscode.QuickPickItem & { uri: string };
+type SessionPick = vscode.QuickPickItem & { uri?: string };
 type History = { requestId: number, picker: vscode.QuickPick<SessionPick>, timeout: ReturnType<typeof setTimeout> };
 
 /**
  * The chat panel. Its webview connects to the shared agent host itself, so
- * this side only supplies the workspace folder and opens files and links.
+ * this side supplies workspace and editor context and opens files and links.
  */
 export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 	private view?: vscode.WebviewView;
 	private ready = false;
 	private queued: ToWebview[] = [];
 	private history?: History;
+	private session?: Extract<FromWebview, { type: 'title' }>['session'];
+	private fileSearch?: vscode.CancellationTokenSource;
 	private requestId = 0;
 	private readonly listeners: vscode.Disposable[];
 
@@ -29,6 +32,7 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		// Sessions run in the window's folder, so the panel follows it.
 		const update = () => {
 			this.closeHistory();
+			this.fileSearch?.cancel();
 			if (this.ready) {
 				this.post(this.init());
 			}
@@ -41,6 +45,7 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 
 	dispose(): void {
 		this.closeHistory();
+		this.fileSearch?.cancel();
 		this.view = undefined;
 		this.queued = [];
 		for (const listener of this.listeners) {
@@ -62,6 +67,8 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 			if (this.view === view) {
 				this.view = undefined;
 				this.ready = false;
+				this.session = undefined;
+				this.fileSearch?.cancel();
 				this.closeHistory();
 			}
 		});
@@ -73,12 +80,30 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		this.post({ type: 'newChat' });
 	}
 
+	async renameSession(): Promise<void> {
+		await this.reveal();
+		const session = this.session;
+		if (!session) {
+			void vscode.window.showInformationMessage('Open a Wingman session to rename it.');
+			return;
+		}
+		const title = (await vscode.window.showInputBox({
+			prompt: 'Rename Wingman session',
+			value: session.title,
+			validateInput: value => value.trim() ? undefined : 'Enter a session name.',
+		}))?.trim();
+		if (title && title !== session.title && this.session?.uri === session.uri) {
+			this.post({ type: 'renameSession', uri: session.uri, title });
+		}
+	}
+
 	/** Lists the folder's sessions, which only the webview's connection can read. */
 	async showHistory(): Promise<void> {
 		await this.reveal();
 		this.closeHistory();
 		const picker = vscode.window.createQuickPick<SessionPick>();
-		picker.placeholder = 'Open a Wingman session';
+		picker.title = 'Wingman Chat History';
+		picker.placeholder = 'Search sessions by title or status';
 		picker.matchOnDescription = true;
 		picker.busy = true;
 		const requestId = ++this.requestId;
@@ -87,7 +112,7 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		picker.onDidHide(() => this.closeHistory(requestId));
 		picker.onDidAccept(() => {
 			const picked = picker.selectedItems[0];
-			if (this.history?.requestId === requestId && picked) {
+			if (this.history?.requestId === requestId && picked?.uri) {
 				this.closeHistory(requestId);
 				this.post({ type: 'openSession', uri: picked.uri });
 			}
@@ -123,9 +148,42 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 		}
 		const { picker } = history;
 		picker.busy = false;
-		picker.placeholder = reply.items.length ? 'Open a Wingman session' : 'No sessions in this folder yet';
-		picker.items = reply.items.map(toPick);
-		picker.activeItems = picker.items.filter(item => item.picked);
+		picker.placeholder = reply.items.length ? 'Search sessions by title or status' : 'No sessions in this folder yet';
+		picker.items = sessionPicks(reply.items);
+	}
+
+	private async fileContext(message: Extract<FromWebview, { type: 'findFiles' | 'attachEditor' }>): Promise<void> {
+		const view = this.view;
+		const directory = vscode.workspace.workspaceFolders?.[0];
+		const search = message.type === 'findFiles' ? new vscode.CancellationTokenSource() : undefined;
+		if (search) {
+			this.fileSearch?.cancel();
+			this.fileSearch = search;
+		}
+		const reply = (context: FileSearch, error?: string) => {
+			if (this.view === view && !search?.token.isCancellationRequested && vscode.workspace.workspaceFolders?.[0]?.uri.toString() === directory?.uri.toString()) {
+				this.post({ type: 'fileContext', requestId: message.requestId, ...context, error });
+			}
+		};
+		try {
+			if (!directory || directory.uri.scheme !== 'file' || vscode.env.remoteName || !vscode.workspace.isTrusted) {
+				throw new Error('Open a trusted local folder to attach files.');
+			}
+			if (message.type === 'findFiles') {
+				const files = await findWorkspaceFiles(directory, message.query, search?.token);
+				const editor = !message.query ? editorReference(directory, vscode.window.activeTextEditor) : undefined;
+				reply({ files, editor });
+			} else {
+				reply({ files: [await editorAttachment(directory, vscode.window.activeTextEditor, message.uri)] });
+			}
+		} catch (error) {
+			reply({ files: [] }, error instanceof Error ? error.message : String(error));
+		} finally {
+			if (this.fileSearch === search) {
+				this.fileSearch = undefined;
+			}
+			search?.dispose();
+		}
 	}
 
 	private init(): ToWebview {
@@ -167,7 +225,12 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 			case 'sessions':
 				this.showSessions(message);
 				break;
+			case 'findFiles':
+			case 'attachEditor':
+				await this.fileContext(message);
+				break;
 			case 'title':
+				this.session = message.session;
 				if (this.view) {
 					this.view.description = message.title || undefined;
 				}
@@ -201,13 +264,19 @@ export class WingmanChatView implements vscode.WebviewViewProvider, vscode.Dispo
 	}
 }
 
-function toPick(item: SessionItem): SessionPick {
-	return {
-		uri: item.uri,
-		label: `${item.running ? '$(loading~spin) ' : ''}${item.title || 'Untitled session'}`,
-		description: [item.current ? 'current' : '', ago(item.modifiedAt)].filter(Boolean).join(' · '),
-		picked: item.current,
-	};
+function sessionPicks(items: SessionItem[]): SessionPick[] {
+	const groups: Record<string, SessionPick[]> = { 'Current Session': [], 'Needs Input': [], Running: [], Recent: [] };
+	for (const item of items) {
+		const group = item.current ? 'Current Session' : item.waiting ? 'Needs Input' : item.running ? 'Running' : 'Recent';
+		groups[group].push({
+			uri: item.uri,
+			label: item.title || 'Untitled session',
+			description: [item.waiting ? 'Needs input' : item.running ? 'Running' : '', ago(item.modifiedAt)].filter(Boolean).join(' · '),
+		});
+	}
+	return Object.entries(groups).flatMap(([label, picks]) => picks.length
+		? [{ label, kind: vscode.QuickPickItemKind.Separator }, ...picks]
+		: []);
 }
 
 function ago(timestamp: string): string {

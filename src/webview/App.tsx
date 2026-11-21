@@ -2,6 +2,7 @@ import type {
 	ActiveTurn,
 	ChatInputQuestion,
 	ChatInputRequest,
+	Message,
 	ResponsePart,
 	ToolCallPendingConfirmationState,
 	ToolCallState,
@@ -21,16 +22,18 @@ import {
 	type ReactNode,
 } from 'react';
 
+import { attachmentHref } from './attachments';
 import { display, settings, type Chat, type Option, type View } from './chat';
-import { CheckIcon, ChevronIcon, CrossIcon, SendIcon, Spinner, StopIcon } from './icons';
+import { AttachmentChips, draftChips, useFileAttachments, type FileHost } from './FileAttachments';
+import { AttachIcon, CheckIcon, ChevronIcon, CrossIcon, SendIcon, Spinner, StopIcon } from './icons';
 import { Link, LinkContext, Markdown } from './Markdown';
 
 /** What the editor does for the panel. */
-export type Host = {
+export type Host = FileHost & {
 	startHost(): void;
 	openFile(uri: string, line?: number): void;
 	openLink(url: string): void;
-	setTitle(title: string): void;
+	setTitle(title: string, session?: { uri: string, title: string }): void;
 };
 
 export function App({ chat, host, focus, icon }: { chat: Chat, host: Host, focus: number, icon?: string }) {
@@ -51,8 +54,9 @@ export function App({ chat, host, focus, icon }: { chat: Chat, host: Host, focus
 		}
 	}, [view.chat, view.session, view.opening]);
 
-	const title = view.chat?.title || view.session?.title || '';
-	useEffect(() => host.setTitle(title), [host, title]);
+	const sessionUri = view.sessionUri;
+	const title = view.session?.title || view.chat?.title || '';
+	useEffect(() => host.setTitle(title, sessionUri ? { uri: sessionUri, title } : undefined), [host, title, sessionUri]);
 
 	const directory = view.directory;
 	const open = useCallback((href: string) => {
@@ -144,9 +148,21 @@ function Transcript({ view, chat }: { view: View, chat: Chat }) {
 			{questions.map(request => <Question key={request.id} request={request} chat={chat} />)}
 			{active && !waiting && !busy && <p className="working"><Spinner /> {state.activity || 'Working'}</p>}
 			{(state.queuedMessages ?? []).map(queued => (
-				<div key={queued.id} className="user queued" title="Sent when the running turn ends">{queued.message.text}</div>
+				<UserMessage key={queued.id} message={queued.message} queued />
 			))}
 		</>
+	);
+}
+
+function UserMessage({ message, queued }: { message: Message, queued?: boolean }) {
+	return (
+		<div className={queued ? 'user queued' : 'user'} title={queued ? 'Sent when the running turn ends' : undefined}>
+			{message.text}
+			<AttachmentChips items={(message.attachments ?? []).map(attachment => ({
+				label: attachment.label,
+				href: attachmentHref(attachment),
+			}))} />
+		</div>
 	);
 }
 
@@ -157,7 +173,7 @@ const TurnView = memo(function TurnView({ turn, chat }: { turn: Turn | ActiveTur
 	return (
 		<section className="turn">
 			{/* Turns the host starts itself, such as a background task's result, have no user message. */}
-			{turn.message.origin.kind === 'user' && <div className="user">{turn.message.text}</div>}
+			{turn.message.origin.kind === 'user' && <UserMessage message={turn.message} />}
 			{turn.responseParts.map((part, index) => <PartView key={partKey(part, index)} part={part} chat={chat} />)}
 			{state === 'cancelled' && <p className="note">Stopped</p>}
 			{state === 'error' && !turn.responseParts.some(part => part.kind === 'error') && <div className="error" role="alert">The turn failed.</div>}
@@ -421,6 +437,7 @@ function Composer({ view, chat, host, focus, onSend }: { view: View, chat: Chat,
 	const running = !!view.chat?.activeTurn;
 	const ready = view.connected && !!view.directory && !!view.agent && !view.opening;
 	const current = settings(view.config, view.agent);
+	const attachments = useFileAttachments(host, input, ready && !view.sending, setText);
 
 	useLayoutEffect(() => {
 		const element = input.current;
@@ -438,17 +455,20 @@ function Composer({ view, chat, host, focus, onSend }: { view: View, chat: Chat,
 
 	const submit = async () => {
 		const message = text.trim();
-		if (!message || !ready || view.sending) {
+		if (!message || !ready || view.sending || attachments.attaching) {
 			return;
 		}
-		setText('');
+		attachments.close();
 		onSend();
-		// A message that was not delivered returns to the input.
-		if (!await chat.send(message)) {
-			setText(typed => typed || message);
+		if (await chat.send(message, attachments.files)) {
+			setText('');
+			attachments.clear();
 		}
 	};
 	const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+		if (attachments.keyDown(event)) {
+			return;
+		}
 		if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			void submit();
@@ -464,26 +484,39 @@ function Composer({ view, chat, host, focus, onSend }: { view: View, chat: Chat,
 					<button type="button" className="icon-button" title="Dismiss" aria-label="Dismiss" onClick={() => chat.dismiss()}><CrossIcon /></button>
 				</div>
 			)}
+			{attachments.error && <div className="error" role="alert">{attachments.error}</div>}
 			<div className="input-box">
+				{attachments.suggestions}
+				<AttachmentChips items={draftChips(attachments.files, attachments.remove, view.sending)} />
 				<textarea
 					ref={input}
 					rows={1}
 					value={text}
 					disabled={!ready}
-					readOnly={view.sending}
+					readOnly={view.sending || attachments.attaching}
 					placeholder={running ? 'Queue a follow-up…' : 'Ask Wingman…'}
 					aria-label="Message"
-					onChange={event => setText(event.target.value)}
+					aria-autocomplete="list"
+					aria-controls={attachments.listId}
+					aria-activedescendant={attachments.activeId}
+					onChange={event => {
+						setText(event.currentTarget.value);
+						attachments.update(event.currentTarget);
+					}}
+					onSelect={event => attachments.update(event.currentTarget)}
+					onBlur={attachments.close}
 					onKeyDown={keyDown}
 				/>
 				<div className="input-toolbar">
+					<button type="button" className="icon-button" title="Attach File" aria-label="Attach File" aria-haspopup="listbox" aria-expanded={!!attachments.listId}
+						disabled={!ready || view.sending || attachments.attaching} onMouseDown={event => event.preventDefault()} onClick={attachments.open}><AttachIcon /></button>
 					<Picker label="Model" value={current.model} options={current.models} disabled={!ready || view.sending} onChange={value => { void chat.configure('model', value); }} />
 					<Picker label="Mode" value={current.mode} options={current.modes} disabled={!ready || view.sending} onChange={value => { void chat.configure('mode', value); }} />
 					<Picker label="Effort" value={current.effort} options={current.efforts} disabled={!ready || view.sending} onChange={value => { void chat.configure('effort', value); }} />
 					<span className="spacer" />
 					{running
 						? <button type="button" className="button round" title="Stop" aria-label="Stop" disabled={!ready} onClick={() => { void chat.cancel(); }}><StopIcon /></button>
-						: <button type="button" className="button round" title="Send" aria-label="Send" disabled={!ready || !text.trim() || view.sending} onClick={() => { void submit(); }}><SendIcon /></button>}
+						: <button type="button" className="button round" title="Send" aria-label="Send" disabled={!ready || !text.trim() || view.sending || attachments.attaching} onClick={() => { void submit(); }}><SendIcon /></button>}
 				</div>
 			</div>
 		</footer>
