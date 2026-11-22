@@ -10,6 +10,7 @@ Reference: [Keep a Changelog](http://keepachangelog.com/)
 - Choose a model, Agent or Plan mode, and reasoning effort. Attach workspace files or editor selections, queue follow-ups, and respond to approvals and questions in the transcript.
 - Reopen sessions from the current folder's history and rename the active session. The panel restores the last open session after reloading and shares sessions with VS Code Chat and the Agents window.
 - The shared agent host now runs even when VS Code's AI features or remote agent hosts are turned off. Starting the host from VS Code requires 1.144 or later. On older supported versions, start it in a terminal with `wingman host`.
+- Read the agent's launcher from `$WINGMAN_HOME/path` when `WINGMAN_HOME` is set, matching where `wingman-agent` records it. The host the extension starts uses the same `WINGMAN_HOME`.
 
 ## [0.4.4] - 2026-11-20
 

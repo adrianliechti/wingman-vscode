@@ -47,6 +47,8 @@ type WindowRef = { host: WingmanAgentHost, listeners: Map<string, (...args: neve
 type WindowOptions = {
 	agents?: boolean, supported?: boolean, trusted?: boolean, remote?: string, version?: string, autoStart?: boolean,
 	startup?: 'error' | 'exit' | 'wait', failUpdate?: number, recordedCommand?: string | Promise<string>, executables?: string[],
+	/** WINGMAN_HOME in the extension host's environment, and the path file it should lead to. */
+	wingmanHome?: { value: string, pathFile: string },
 };
 
 function machine(): Machine {
@@ -120,12 +122,12 @@ function openWindow(m: Machine, options: WindowOptions = {}) {
 		vscode,
 		'node:path': path,
 		'node:os': { homedir: () => '/users/test' },
-		'node:process': { env: { PATH: '/bin' } },
+		'node:process': { env: { PATH: '/bin', ...options.wingmanHome && { WINGMAN_HOME: options.wingmanHome.value } } },
 		'node:fs': { constants },
 		'node:fs/promises': {
 			readFile: async (filename: string, encoding: string) => {
 				assert.strictEqual(encoding, 'utf8');
-				assert.strictEqual(filename, pathFile);
+				assert.strictEqual(filename, options.wingmanHome?.pathFile ?? pathFile);
 				pathReads.push(filename);
 				if (options.recordedCommand === undefined) {
 					throw errno('ENOENT');
@@ -402,6 +404,22 @@ suite('Wingman agent host lifecycle', () => {
 			assert.strictEqual(h.spawns[0].executable, executable);
 			assert.deepStrictEqual(normalize(h.spawns[0].args), hostArgs);
 			assert.strictEqual(h.writes.length, 1);
+		}
+	});
+
+	test('reads the path file from WINGMAN_HOME, resolving a relative one against the home directory', async () => {
+		for (const wingmanHome of [
+			{ value: '/test', pathFile: '/test/path' },
+			{ value: 'config/wingman', pathFile: '/users/test/config/wingman/path' },
+			{ value: '', pathFile },
+		]) {
+			const h = openWindow(setup(), { recordedCommand: '/test/cli lala', executables: ['/test/cli'], wingmanHome });
+			h.preferences.delete('agentHost.executable');
+			await h.host.start();
+			assert.strictEqual(h.spawns[0].executable, '/test/cli');
+			assert.deepStrictEqual(normalize(h.spawns[0].args), ['lala', ...hostArgs]);
+			assert.strictEqual((h.spawns[0].options as { env: Record<string, string> }).env.WINGMAN_HOME, wingmanHome.value, 'the host uses the same home');
+			assert.deepStrictEqual(h.pathReads, [wingmanHome.pathFile]);
 		}
 	});
 

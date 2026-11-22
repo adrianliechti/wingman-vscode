@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { access, readFile, stat } from 'node:fs/promises';
 import { get } from 'node:http';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { env } from 'node:process';
 
 // Every window shares one local host at a fixed address, so each window writes
@@ -274,7 +274,7 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if ([setting?.globalValue, setting?.workspaceValue, setting?.workspaceFolderValue].some(value => value !== undefined)) {
 			return parseCommand(config.get<string>('agentHost.executable', 'wingman'));
 		}
-		const pathFile = join(homedir(), '.wingman', 'path');
+		const pathFile = join(wingmanHome(), 'path');
 		try {
 			const value = (await readFile(pathFile, 'utf8')).trim();
 			if (value) {
@@ -316,7 +316,7 @@ export class WingmanAgentHost implements vscode.Disposable {
 			child.on('error', (error: NodeJS.ErrnoException) => {
 				cleanup();
 				reject(new Error(error.code === 'ENOENT'
-					? 'Wingman executable was not found. Install wingman-agent, check ~/.wingman/path, or set wingman.agentHost.executable to its path or launcher command.'
+					? 'Wingman executable was not found. Install wingman-agent, check the path file in WINGMAN_HOME or ~/.wingman, or set wingman.agentHost.executable to its path or launcher command.'
 					: `Could not start Wingman: ${error.message}`));
 			});
 			child.once('exit', (code, signal) => {
@@ -377,6 +377,12 @@ export class WingmanAgentHost implements vscode.Disposable {
 			await this.removeEntry(setting);
 		}
 	}
+}
+
+/** The agent's data directory, where it records its launcher: WINGMAN_HOME, else ~/.wingman. */
+function wingmanHome(): string {
+	// The host runs in the home directory, so a relative value resolves there as it does for the host.
+	return resolve(homedir(), env.WINGMAN_HOME || '.wingman');
 }
 
 function autoStartEnabled(): boolean {

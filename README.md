@@ -35,7 +35,7 @@ Using Wingman models in **Copilot harness** sessions requires `chat.agentHost.by
 | `wingman.baseUrl` | Base URL of your Wingman API | `http://localhost:4242/v1` |
 | `wingman.apiKey` | API key for authentication | `-` |
 | `wingman.agentHost.autoStart` | Start and configure the agent host when opening a trusted local project | `true` |
-| `wingman.agentHost.executable` | Override the Wingman executable path or launcher command | `~/.wingman/path`, then `wingman` on PATH |
+| `wingman.agentHost.executable` | Override the Wingman executable path or launcher command | `$WINGMAN_HOME/path` (default `~/.wingman/path`), then `wingman` on PATH |
 
 For a local backend without authentication, keep the default API key.
 
@@ -47,7 +47,7 @@ Claude 5.x models use adaptive thinking by default when `thinking` is omitted. W
 
 ### Wingman agent host
 
-1. Install `wingman-agent` and configure its provider following the [agent setup instructions](https://github.com/adrianliechti/wingman-agent#configure-your-provider). The extension finds the agent through `~/.wingman/path`, then `wingman` on PATH; `wingman.agentHost.executable` overrides both.
+1. Install `wingman-agent` and configure its provider following the [agent setup instructions](https://github.com/adrianliechti/wingman-agent#configure-your-provider). The extension finds the agent through the `path` file the agent records in `WINGMAN_HOME` (default `~/.wingman`), then `wingman` on PATH; `wingman.agentHost.executable` overrides both.
 2. Open a trusted local project in VS Code 1.144 or later, or open the Agents window.
 3. Select **Wingman** in Chat, then choose an agent and model. Editor windows use their project folder; in the Agents window, choose a folder for each session.
 
@@ -55,7 +55,7 @@ All windows share one `wingman host` on `localhost:9100`, which serves projects 
 
 The host is registered in user settings, never in workspace settings: `chat.workspaceRemoteAgentHosts` for editor windows and `chat.remoteAgentHosts` for the Agents window. Every window writes the same entry, `{"address": "ws://localhost:9100/ahp", "name": "Wingman"}`, and other entries are kept. A workspace value for these settings replaces the user list and hides Wingman in that workspace; the extension logs a warning when that happens.
 
-The executable setting and `~/.wingman/path` accept a path or a launcher command such as `/bin/devtool wingman`, which runs `/bin/devtool wingman host --port 9100`. Quote paths and arguments that contain spaces; no shell expansion is performed. An unusable discovery file falls back to `wingman` on PATH.
+The executable setting and the `path` file accept a path or a launcher command such as `/bin/devtool wingman`, which runs `/bin/devtool wingman host --port 9100`. Quote paths and arguments that contain spaces; no shell expansion is performed. An unusable discovery file falls back to `wingman` on PATH.
 
 Use **Wingman: Start Agent Host** to start or retry, and **Wingman: Stop Agent Host** to stop the host and remove its entry, which stops it in the other windows too. Set `wingman.agentHost.autoStart` to `false` to start it manually; turning it off also stops the host. If another program, or a Wingman host that requires a token, already uses port 9100, startup reports it. Failures such as a missing executable are logged in **Output → Wingman AI**, and the Start command also shows them. Agent host integration requires a local workspace.
 
