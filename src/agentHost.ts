@@ -10,7 +10,7 @@ import { env } from 'node:process';
 // Every window shares one local host at a fixed address, so each window writes
 // the same entry to user settings, never to the workspace.
 const hostPort = 9100;
-const hostAddress = `ws://localhost:${hostPort}/ahp`;
+export const hostAddress = `ws://localhost:${hostPort}/ahp`;
 const hostName = 'Wingman';
 const watchInterval = 5_000;
 // The Agents window registers both settings but reads remoteAgentHosts; editor
@@ -42,7 +42,7 @@ export class WingmanAgentHost implements vscode.Disposable {
 			// The Agents window's folder follows the focused session and never gates the host.
 			vscode.workspace.onDidChangeWorkspaceFolders(() => { if (registeredSetting() === 'workspaceRemoteAgentHosts') { void this.autoStart(); } }),
 			vscode.workspace.onDidChangeConfiguration(event => {
-				if (event.affectsConfiguration('wingman.agentHost') || event.affectsConfiguration('chat.remoteAgentHostsEnabled') || event.affectsConfiguration('chat.disableAIFeatures')) {
+				if (event.affectsConfiguration('wingman.agentHost')) {
 					void this.applyPreferences();
 				} else if (hostSettings.some(setting => event.affectsConfiguration(`chat.${setting}`))) {
 					void this.enqueue(() => this.followRemoval());
@@ -56,7 +56,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 		return autoStartEnabled() ? this.start(false) : this.enqueue(() => this.pruneEntry());
 	}
 
-	start(interactive = true): Promise<void> {
+	/** `interactive` shows failures to the user; `announce` also tells them the host runs. */
+	start(interactive = true, announce = interactive): Promise<void> {
 		const generation = this.generation;
 		return this.enqueue(async () => {
 			if (this.isStale(generation)) {
@@ -68,8 +69,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 					return;
 				}
 				this.setActive(true);
-				if (interactive) {
-					void vscode.window.showInformationMessage('Wingman: agent host is running. Select Wingman in Chat to start a session.');
+				if (announce) {
+					void vscode.window.showInformationMessage(`Wingman: agent host is running. ${chatEnabled() ? 'Select Wingman in Chat or open the Wingman panel' : 'Open the Wingman panel'} to start a session.`);
 				}
 			} catch (error) {
 				await this.stopServer();
@@ -115,8 +116,7 @@ export class WingmanAgentHost implements vscode.Disposable {
 
 	/** Preferences are shared by every window, so each one applies the change. */
 	private applyPreferences(): Promise<void> {
-		const chat = vscode.workspace.getConfiguration('chat');
-		if (!autoStartEnabled() || chat.get('remoteAgentHostsEnabled') === false || chat.get('disableAIFeatures') === true) {
+		if (!autoStartEnabled()) {
 			return this.stop();
 		}
 		// Restart with the new executable; one window wins the port again.
@@ -218,10 +218,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (!vscode.workspace.isTrusted) {
 			throw new Error('Trust this workspace before starting the agent host.');
 		}
-		const chat = vscode.workspace.getConfiguration('chat');
-		const [major, minor] = vscode.version.split('.').map(Number);
-		if (major < 1 || (major === 1 && minor < 144)) {
-			throw new Error('Wingman AHP requires VS Code 1.144 or later. Model sync remains available on this version.');
+		if (!supportsAgentHostVersion()) {
+			throw new Error('Starting the agent host from VS Code requires version 1.144 or later. Run wingman host in a terminal to use the Wingman panel.');
 		}
 		const setting = registeredSetting();
 		if (!setting) {
@@ -232,9 +230,8 @@ export class WingmanAgentHost implements vscode.Disposable {
 		if (vscode.env.remoteName || setting === 'workspaceRemoteAgentHosts' && (!folder || folder.uri.scheme !== 'file')) {
 			throw new Error('Open a local project folder to start the agent host. Remote workspaces are not supported yet.');
 		}
-		if (chat.get('remoteAgentHostsEnabled') === false || chat.get('disableAIFeatures') === true) {
-			throw new Error('Agent host connections are disabled in VS Code settings.');
-		}
+		// VS Code's own AI features may be switched off: the Wingman panel uses
+		// the host all the same, and Chat finds the entry once they are back on.
 		return setting;
 	}
 
@@ -384,6 +381,21 @@ export class WingmanAgentHost implements vscode.Disposable {
 
 function autoStartEnabled(): boolean {
 	return vscode.workspace.getConfiguration('wingman').get<boolean>('agentHost.autoStart', true);
+}
+
+function supportsAgentHostVersion(): boolean {
+	const [major, minor] = vscode.version.split('.').map(Number);
+	return major > 1 || (major === 1 && minor >= 144);
+}
+
+export function supportsManagedHost(): boolean {
+	return supportsAgentHostVersion() && registeredSetting() !== undefined;
+}
+
+/** Whether VS Code Chat connects to agent hosts; the Wingman panel does either way. */
+function chatEnabled(): boolean {
+	const chat = vscode.workspace.getConfiguration('chat');
+	return chat.get('remoteAgentHostsEnabled') !== false && chat.get('disableAIFeatures') !== true;
 }
 
 /** The host setting this window reads, if this VS Code release registers one. */

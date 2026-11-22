@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { toCustomEndpointModels, CustomEndpointModel } from './models';
 import { UtilityModelDefaults } from './utilityModels';
 import { WingmanAgentHost } from './agentHost';
+import { WingmanChatView, chatViewId } from './chatView';
 
 const groupName = 'Wingman';
 const groupVendor = 'customendpoint';
@@ -26,6 +27,8 @@ export function activate(context: vscode.ExtensionContext) {
 	const logger = vscode.window.createOutputChannel('Wingman AI', { log: true });
 	const utilityModels = new UtilityModelDefaults(groupVendor, logger);
 	agentHost = new WingmanAgentHost(logger);
+	// The panel shows that it connected, so only a failed start needs a message.
+	const chatView = new WingmanChatView(context.extensionUri, logger, () => agentHost?.start(true, false) ?? Promise.resolve());
 	const retryModelProvider = () => {
 		if (waitingForModelProvider) {
 			waitingForModelProvider = false;
@@ -37,6 +40,13 @@ export function activate(context: vscode.ExtensionContext) {
 		logger,
 		utilityModels,
 		agentHost,
+		chatView,
+		// The hidden panel keeps its connection, so a running turn is not missed.
+		vscode.window.registerWebviewViewProvider(chatViewId, chatView, { webviewOptions: { retainContextWhenHidden: true } }),
+		vscode.commands.registerCommand('wingman.openChat', () => vscode.commands.executeCommand(`${chatViewId}.focus`)),
+		vscode.commands.registerCommand('wingman.newChat', () => chatView.newChat()),
+		vscode.commands.registerCommand('wingman.chatHistory', () => chatView.showHistory()),
+		vscode.commands.registerCommand('wingman.renameSession', () => chatView.renameSession()),
 		vscode.commands.registerCommand('wingman.syncModels', () => syncModels(context, logger, utilityModels, true)),
 		vscode.commands.registerCommand('wingman.startAgentHost', () => agentHost?.start()),
 		vscode.commands.registerCommand('wingman.stopAgentHost', () => agentHost?.stop()),

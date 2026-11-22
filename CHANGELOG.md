@@ -4,6 +4,17 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.5.0] - 2026-11-22
+
+- With `wingman-agent` installed, open the **Wingman** panel in the Secondary Side Bar or run **Wingman: Open Chat** in a trusted local workspace. The panel connects to Wingman's built-in agent through the shared host and works without Copilot Chat.
+- Choose a model, Agent or Plan mode, and reasoning effort. Attach workspace files or editor selections, queue follow-ups, and respond to approvals and questions in the transcript.
+- Reopen sessions from the current folder's history and rename the active session. The panel restores the last open session after reloading and shares sessions with VS Code Chat and the Agents window.
+- The shared agent host now runs even when VS Code's AI features or remote agent hosts are turned off. Starting the host from VS Code requires 1.144 or later. On older supported versions, start it in a terminal with `wingman host`.
+
+## [0.4.4] - 2026-11-20
+
+- Add Gemini 4 Neon and Inkling 2 Mini with image input, tool use, reasoning effort controls, and 1M-token context windows. Gemini 4 Neon allows up to 65,536 output tokens and Inkling 2 Mini up to 131,072.
+
 ## [0.4.3] - 2026-11-17
 
 - Add GPT 6.2 Astra and GPT 6.2 Sol with image input, tool use, and Thinking Effort from `low` through `max`.
