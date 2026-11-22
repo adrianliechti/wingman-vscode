@@ -4,6 +4,11 @@ All notable changes to the "wingman" extension are tracked here.
 
 Reference: [Keep a Changelog](http://keepachangelog.com/)
 
+## [0.5.2] - 2026-11-22
+
+- Fix agent host startup on Windows when a launcher command starts with an unquoted absolute `.exe` path containing spaces, such as `C:\Program Files\tool\helper.exe wingman`. This works in both the `path` file and the `wingman.agentHost.executable` setting.
+- When a Windows launcher command ends in `wingman cli`, drop the trailing `cli` so the helper receives `wingman host --port 9100`.
+
 ## [0.5.0] - 2026-11-22
 
 - With `wingman-agent` installed, open the **Wingman** panel in the Secondary Side Bar or run **Wingman: Open Chat** in a trusted local workspace. The panel connects to Wingman's built-in agent through the shared host and works without Copilot Chat.

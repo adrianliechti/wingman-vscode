@@ -5,7 +5,7 @@ import { access, readFile, stat } from 'node:fs/promises';
 import { get } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { env } from 'node:process';
+import { env, platform } from 'node:process';
 
 // Every window shares one local host at a fixed address, so each window writes
 // the same entry to user settings, never to the workspace.
@@ -448,11 +448,14 @@ async function parseCommand(value: string): Promise<AgentCommand> {
 	if (isAbsolute(line) && await isExecutable(line)) {
 		return { executable: line, args: [] };
 	}
-	const words: string[] = [];
+	// A Windows launcher can record an unquoted absolute path followed by arguments.
+	// Use the explicit .exe boundary so spaces in the path reach spawn intact.
+	const windowsPath = platform === 'win32' && isAbsolute(line) ? /^[^"]*?\.exe(?=\s|$)/i.exec(line)?.[0] : undefined;
+	const words: string[] = windowsPath ? [windowsPath] : [];
 	let word = '';
 	let started = false;
 	let quote: string | undefined;
-	for (let i = 0; i < line.length; i++) {
+	for (let i = windowsPath?.length ?? 0; i < line.length; i++) {
 		const char = line[i];
 		const next = line[i + 1];
 		if (char === '\\' && quote !== "'" && next !== undefined
@@ -463,6 +466,10 @@ async function parseCommand(value: string): Promise<AgentCommand> {
 		} else if (char === quote) {
 			quote = undefined;
 		} else if (!quote && (char === '"' || char === "'")) {
+			// A final double quote on a Windows argument (e.g. wingman") ends at EOF.
+			if (platform === 'win32' && char === '"' && started && next === undefined) {
+				break;
+			}
 			quote = char;
 			started = true;
 		} else if (!quote && /\s/.test(char)) {
@@ -485,6 +492,10 @@ async function parseCommand(value: string): Promise<AgentCommand> {
 	const [executable, ...args] = words;
 	if (!executable) {
 		throw new Error('The Wingman command must start with an executable.');
+	}
+	// Some Windows launchers record the interactive "wingman cli" subcommand.
+	if (platform === 'win32' && args.at(-2) === 'wingman' && args.at(-1) === 'cli') {
+		args.pop();
 	}
 	return { executable, args };
 }

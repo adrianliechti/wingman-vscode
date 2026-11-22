@@ -9,7 +9,7 @@ import type { WingmanAgentHost } from '../agentHost';
 const editorSetting = 'workspaceRemoteAgentHosts';
 const agentsSetting = 'remoteAgentHosts';
 const address = 'ws://localhost:9100/ahp';
-const pathFile = path.join('/users/test', '.wingman', 'path');
+const pathFile = '/users/test/.wingman/path';
 const otherHost = { address: 'wss://other.example/ahp', name: 'Other', connectionToken: 'test-token' };
 const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
 const hostArgs = ['host', '--port', '9100'];
@@ -46,6 +46,7 @@ type Machine = {
 type WindowRef = { host: WingmanAgentHost, listeners: Map<string, (...args: never[]) => void>, readonly pending: Promise<void> };
 type WindowOptions = {
 	agents?: boolean, supported?: boolean, trusted?: boolean, remote?: string, version?: string, autoStart?: boolean,
+	platform?: 'win32' | 'darwin',
 	startup?: 'error' | 'exit' | 'wait', failUpdate?: number, recordedCommand?: string | Promise<string>, executables?: string[],
 	/** WINGMAN_HOME in the extension host's environment, and the path file it should lead to. */
 	wingmanHome?: { value: string, pathFile: string },
@@ -118,16 +119,19 @@ function openWindow(m: Machine, options: WindowOptions = {}) {
 	const filename = path.join(__dirname, '../agentHost.js');
 	const module = { exports: {} as { WingmanAgentHost: new (...args: unknown[]) => WingmanAgentHost } };
 	const errno = (code: string) => Object.assign(new Error(code), { code });
+	const windows = options.platform === 'win32';
+	const hostPath = windows ? path.win32 : path.posix;
+	const home = windows ? 'C:\\Users\\test' : '/users/test';
 	const modules: Record<string, unknown> = {
 		vscode,
-		'node:path': path,
-		'node:os': { homedir: () => '/users/test' },
-		'node:process': { env: { PATH: '/bin', ...options.wingmanHome && { WINGMAN_HOME: options.wingmanHome.value } } },
+		'node:path': hostPath,
+		'node:os': { homedir: () => home },
+		'node:process': { platform: options.platform ?? 'darwin', env: { PATH: '/bin', ...options.wingmanHome && { WINGMAN_HOME: options.wingmanHome.value } } },
 		'node:fs': { constants },
 		'node:fs/promises': {
 			readFile: async (filename: string, encoding: string) => {
 				assert.strictEqual(encoding, 'utf8');
-				assert.strictEqual(filename, options.wingmanHome?.pathFile ?? pathFile);
+				assert.strictEqual(filename, options.wingmanHome?.pathFile ?? hostPath.join(home, '.wingman', 'path'));
 				pathReads.push(filename);
 				if (options.recordedCommand === undefined) {
 					throw errno('ENOENT');
@@ -436,6 +440,30 @@ suite('Wingman agent host lifecycle', () => {
 			assert.deepStrictEqual(normalize(h.spawns[0].args), ['wingman', ...hostArgs]);
 			assert.strictEqual(h.pathReads.length, explicit ? 0 : 1);
 			assert.strictEqual(h.writes.length, 1);
+		}
+	});
+
+	test('launches Windows helpers with spaces from discovery and explicit settings', async () => {
+		const executable = 'C:\\Program Files\\tool\\helper.exe';
+		for (const explicit of [false, true]) {
+			for (const [command, args] of [
+				[`${executable} wingman`, ['wingman']],
+				[`${executable} wingman"`, ['wingman']],
+				[`${executable} wingman cli`, ['wingman']],
+				[`"${executable}" wingman cli`, ['wingman']],
+				[`${executable} --profile "work account" cli`, ['--profile', 'work account', 'cli']],
+				[`${executable} wingman cli --debug`, ['wingman', 'cli', '--debug']],
+			] as const) {
+				const h = openWindow(setup(), { platform: 'win32', recordedCommand: command, executables: [executable] });
+				if (explicit) {
+					h.preferences.set('agentHost.executable', command);
+				} else {
+					h.preferences.delete('agentHost.executable');
+				}
+				await h.host.start();
+				assert.strictEqual(h.spawns[0]?.executable, executable, command);
+				assert.deepStrictEqual(normalize(h.spawns[0].args), [...args, ...hostArgs], command);
+			}
 		}
 	});
 

@@ -3,7 +3,7 @@
   "publisher": "adrianliechti",
   "displayName": "Wingman AI",
   "description": "Wingman AI",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "icon": "assets/logo.png",
   "repository": {
     "type": "git",
@@ -51,7 +51,7 @@
         "wingman.agentHost.executable": {
           "type": "string",
           "default": "wingman",
-          "description": "Wingman executable path or launcher command, such as /bin/devtool wingman. When not explicitly set, reads path in WINGMAN_HOME (default ~/.wingman), then falls back to wingman on PATH. Quote paths or arguments containing spaces in launcher commands. Appends host --port 9100 automatically. Uses the agent's own provider configuration.",
+          "description": "Wingman executable path or launcher command, such as /bin/devtool wingman. When not explicitly set, reads path in WINGMAN_HOME (default ~/.wingman), then falls back to wingman on PATH. Quote paths or arguments containing spaces. Absolute Windows .exe paths can also be unquoted. Appends host --port 9100 automatically. Uses the agent's own provider configuration.",
           "scope": "machine"
         }
       }
