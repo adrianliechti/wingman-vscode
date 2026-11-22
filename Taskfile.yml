@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+vars:
+  # The VS Code command line to install into, such as code-insiders.
+  CODE: '{{.CODE | default "code"}}'
+  # vsce names the package after the manifest.
+  VSIX:
+    sh: node -p "const manifest = require('./package.json'); manifest.name + '-' + manifest.version + '.vsix'"
+
+tasks:
+  package:
+    desc: Build the extension and package it as a VSIX
+    cmds:
+      - npm install
+      - npm run package
+
+  install:
+    desc: Package the extension and install it into VS Code (CODE=code-insiders for another build)
+    deps: [package]
+    cmds:
+      # --force replaces an installed build of the same version.
+      - "{{.CODE}} --install-extension {{.VSIX}} --force {{.CLI_ARGS}}"

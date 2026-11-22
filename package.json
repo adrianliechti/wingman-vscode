@@ -45,7 +45,7 @@
         "wingman.agentHost.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Start Wingman's shared AHP host on port 9100 and register it in user settings for VS Code Chat and the Agents window. The first window runs the host and the others use it. Turning this off stops the host in every window. Requires wingman-agent and a VS Code window that supports AHP host settings.",
+          "description": "Start Wingman's shared AHP host on port 9100 for the Wingman panel and register it in user settings for VS Code Chat and the Agents window. The first window runs the host and the others use it. Turning this off stops the host in every window. Requires wingman-agent and a VS Code window that supports AHP host settings.",
           "scope": "window"
         },
         "wingman.agentHost.executable": {
@@ -56,7 +56,48 @@
         }
       }
     },
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "wingman",
+          "title": "Wingman",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "wingman": [
+        {
+          "type": "webview",
+          "id": "wingman.chat",
+          "name": "Wingman",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "wingman.openChat",
+        "title": "Open Chat",
+        "category": "Wingman"
+      },
+      {
+        "command": "wingman.newChat",
+        "title": "New Chat",
+        "category": "Wingman",
+        "icon": "$(add)"
+      },
+      {
+        "command": "wingman.chatHistory",
+        "title": "Show Chat History",
+        "category": "Wingman",
+        "icon": "$(history)"
+      },
+      {
+        "command": "wingman.renameSession",
+        "title": "Rename Session",
+        "category": "Wingman"
+      },
       {
         "command": "wingman.syncModels",
         "title": "Sync Models",
@@ -72,14 +113,32 @@
         "title": "Stop Agent Host",
         "category": "Wingman"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wingman.newChat",
+          "when": "view == wingman.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "wingman.chatHistory",
+          "when": "view == wingman.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "wingman.renameSession",
+          "when": "view == wingman.chat"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
     "compile": "npm run check-types && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "build": "npm run check-types && npm run lint && node esbuild.mjs --production",
-    "check-types": "tsc --noEmit -p ./",
+    "check-types": "tsc --noEmit -p ./ && tsc -p src/webview",
     "pretest": "tsc -p ./ && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
@@ -87,8 +146,13 @@
     "package": "vsce package"
   },
   "devDependencies": {
+    "@microsoft/agent-host-protocol": "^1.1.0",
+    "@tanstack/highlight": "^1.2.12",
+    "@tanstack/markdown": "^1.2.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/vscode": "~1.134.0",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.1",
@@ -97,6 +161,8 @@
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "~6.0.3"
   }
 }

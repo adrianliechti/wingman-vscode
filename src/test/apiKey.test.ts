@@ -54,6 +54,7 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 		Uri: { joinPath: (uri: Uri, ...parts: string[]) => ({ fsPath: path.posix.join(uri.fsPath, ...parts) }) },
 		window: {
 			createOutputChannel: () => logger,
+			registerWebviewViewProvider: () => disposable,
 			showInformationMessage: async (message: string) => { messages.push(message); },
 			showWarningMessage: async (message: string) => { messages.push(message); },
 			showErrorMessage: async (message: string) => { messages.push(message); },
@@ -136,7 +137,9 @@ function harness(initialGroups: Group[] = [wingmanGroup()]) {
 			? { UtilityModelDefaults: class { sync() { } dispose() { } } }
 			: name === './agentHost'
 				? { WingmanAgentHost: class { configure() { } dispose() { } } }
-				: localRequire(name),
+				: name === './chatView'
+					? { chatViewId: 'wingman.chat', WingmanChatView: class { dispose() { } } }
+					: localRequire(name),
 		TextEncoder, TextDecoder, AbortSignal,
 		fetch: async (_url: string, options: { headers: { Authorization: string } }) => {
 			discoveryHeaders.push(options.headers.Authorization);

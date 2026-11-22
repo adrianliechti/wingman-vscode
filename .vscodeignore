@@ -4,6 +4,8 @@ src/**
 scripts/**
 out/**
 !out/extension.js
+!out/webview.js
+!out/webview.css
 node_modules/**
 .gitignore
 .yarnrc
@@ -14,4 +16,5 @@ vsc-extension-quickstart.md
 **/*.ts
 **/.vscode-test.*
 esbuild.mjs
+Taskfile.yml
 **/*.vsix

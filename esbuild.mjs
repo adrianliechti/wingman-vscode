@@ -3,23 +3,38 @@ import * as esbuild from "esbuild";
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
-const ctx = await esbuild.context({
-  entryPoints: ["src/extension.ts"],
+const shared = {
   bundle: true,
-  format: "cjs",
   minify: production,
   sourcemap: !production,
   sourcesContent: false,
-  platform: "node",
   target: "es2022",
-  outfile: "out/extension.js",
-  external: ["vscode"],
   logLevel: "info",
-});
+};
+
+const contexts = await Promise.all([
+  esbuild.context({
+    ...shared,
+    entryPoints: ["src/extension.ts"],
+    format: "cjs",
+    platform: "node",
+    outfile: "out/extension.js",
+    external: ["vscode"],
+  }),
+  // The chat panel runs in a webview; its stylesheet is written beside the script.
+  esbuild.context({
+    ...shared,
+    entryPoints: ["src/webview/main.tsx"],
+    format: "iife",
+    platform: "browser",
+    outfile: "out/webview.js",
+    jsx: "automatic",
+  }),
+]);
 
 if (watch) {
-  await ctx.watch();
+  await Promise.all(contexts.map((ctx) => ctx.watch()));
 } else {
-  await ctx.rebuild();
-  await ctx.dispose();
+  await Promise.all(contexts.map((ctx) => ctx.rebuild()));
+  await Promise.all(contexts.map((ctx) => ctx.dispose()));
 }

@@ -545,7 +545,7 @@ suite('Wingman agent host lifecycle', () => {
 		assert.ok(JSON.stringify(h.logs).includes('hides the Wingman host'));
 	});
 
-	test('skips unsupported, untrusted, remote, disabled and folderless editor windows', async () => {
+	test('skips unsupported, untrusted, remote and folderless editor windows', async () => {
 		for (const options of [{ supported: false }, { trusted: false }, { remote: 'ssh-remote' }, { version: '1.134.0' }]) {
 			const h = openWindow(setup(), options);
 			await h.host.start();
@@ -555,12 +555,37 @@ suite('Wingman agent host lifecycle', () => {
 		}
 		const m = setup();
 		const h = openWindow(m);
-		m.global.set('remoteAgentHostsEnabled', false);
-		await h.host.start();
-		m.global.delete('remoteAgentHostsEnabled');
 		h.vscode.workspace.workspaceFolders = [];
 		await h.host.start();
 		assert.strictEqual(h.spawns.length, 0);
+	});
+
+	test('runs for the Wingman panel while VS Code\'s own AI features are disabled', async () => {
+		for (const [key, value] of [['disableAIFeatures', true], ['remoteAgentHostsEnabled', false]] as const) {
+			const m = setup();
+			m.global.set(key, value);
+			const h = openWindow(m);
+			await h.host.configure();
+			assert.strictEqual(h.spawns.length, 1);
+			// Chat finds the entry once its features are switched on again.
+			assert.deepStrictEqual(m.global.get(editorSetting), [otherHost, ownEntry]);
+
+			// Switching them on or off neither stops nor restarts a host in use.
+			m.global.delete(key);
+			changed(m.windows, `chat.${key}`);
+			m.global.set(key, value);
+			changed(m.windows, `chat.${key}`);
+			await settle(m);
+			assert.strictEqual(h.spawns.length, 1);
+			assert.deepStrictEqual(h.children[0].kills, []);
+			assert.ok(runningHost(m));
+
+			// The panel reports failures only; the command also says where to go next.
+			await h.host.start(true, false);
+			assert.deepStrictEqual(h.messages, []);
+			await h.host.start();
+			assert.deepStrictEqual(h.messages, ['Wingman: agent host is running. Open the Wingman panel to start a session.']);
+		}
 	});
 
 	test('opening a folder in an empty editor window starts automatically', async () => {
